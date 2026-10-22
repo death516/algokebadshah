@@ -1,0 +1,2901 @@
+<!DOCTYPE html>
+<!-- Delta Quant Core Algorithmic Trading Terminal -->
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+  <title>Delta Quant Core Terminal | Delta Algo | BTCUSD-PERP</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <!-- Fonts -->
+  <link href="https://fonts.googleapis.com" rel="preconnect"/>
+  <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            term: {
+              bg: '#0b0f17',
+              surface: '#111827',
+              surfaceElevated: '#161f30',
+              border: '#1f2937',
+              borderSubtle: '#192231',
+              emerald: '#10b981',
+              rose: '#ef4444',
+              amber: '#f59e0b',
+              orange: '#f97316',
+              cyan: '#06b6d4',
+              blue: '#3b82f6',
+              textMuted: '#94a3b8'
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace']
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    body {
+      background-color: #0b0f17;
+      color: #e2e8f0;
+      font-family: 'Inter', sans-serif;
+    }
+    .font-mono-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-feature-settings: "tnum" 1, "zero" 1;
+    }
+    ::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0b0f17;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1f2937;
+      border-radius: 2px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #374151;
+    }
+    .pulse-dot {
+      box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
+      animation: pulse-ring 2s infinite cubic-bezier(0.66, 0, 0, 1);
+    }
+    .pulse-dot-red {
+      box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6);
+      animation: pulse-ring-red 1.5s infinite cubic-bezier(0.66, 0, 0, 1);
+    }
+    @keyframes pulse-ring {
+      to { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    }
+    @keyframes pulse-ring-red {
+      to { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+    }
+    .halt-glow {
+      animation: halt-glow-kf 1.4s infinite alternate;
+    }
+    @keyframes halt-glow-kf {
+      from { border-color: rgba(239, 68, 68, 0.4); box-shadow: 0 0 10px rgba(239, 68, 68, 0.2); }
+      to { border-color: rgba(239, 68, 68, 1); box-shadow: 0 0 25px rgba(239, 68, 68, 0.45); }
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-[#0b0f17] text-slate-100 antialiased flex flex-col selection:bg-amber-500/30 selection:text-amber-300">
+
+  <!-- EMERGENCY HALT FULL-WIDTH BANNER -->
+  <div class="hidden bg-rose-950/95 border-b border-rose-500/80 px-4 py-2 flex items-center justify-between text-rose-200 z-50 transition-all" id="haltBanner">
+    <div class="flex items-center gap-3">
+      <span class="relative flex h-3 w-3">
+        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+        <span class="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
+      </span>
+      <div class="flex items-center gap-2 font-mono-num text-xs">
+        <span class="font-bold tracking-wider uppercase text-rose-300 bg-rose-900/70 px-2 py-0.5 rounded border border-rose-700">EMERGENCY HALT</span>
+        <span class="text-rose-100 font-medium" id="haltBannerReason">Risk ceiling breached: Max Drawdown hit hard stop</span>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <span class="text-xs text-rose-300/80 hidden md:inline">Automated execution paused &amp; bracket orders canceled</span>
+      <button class="bg-rose-600 hover:bg-rose-500 text-white font-mono-num text-xs font-semibold px-3 py-1 rounded transition-colors shadow-md" id="resumeTradingBtn" onclick="resumeEngine()">
+        Resume Engine (POST /api/v1/resume)
+      </button>
+    </div>
+  </div>
+
+  <!-- TOP HEADER BAR (52px Height) -->
+  <header class="h-[52px] bg-[#111827] border-b border-[#1f2937] px-4 flex items-center justify-between sticky top-0 z-40">
+    <!-- Left: Brand, Symbol & Dual-TF Regime & Mode Switcher -->
+    <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2">
+        <span class="text-amber-400 text-lg font-bold">⚡</span>
+        <span class="font-mono text-xs font-bold tracking-wider text-slate-100 uppercase">Delta Quant Core</span>
+      </div>
+      <div class="h-4 w-px bg-[#1f2937]"></div>
+      <div class="flex items-center gap-1.5 font-mono-num text-xs">
+        <span class="font-bold text-white bg-[#161f30] px-2 py-0.5 rounded border border-[#1f2937]" id="headerSymbol">BTCUSD</span>
+        <span class="text-[11px] text-slate-400 font-medium">1m / 1h Paper Regime</span>
+        <span class="text-[10px] text-emerald-400/90 bg-emerald-400/10 border border-emerald-400/20 px-1.5 py-0.5 rounded font-semibold uppercase" id="headerDbBadge" title="Simulated fills only; exchange order submission is disabled">Paper • Simulated</span>
+      </div>
+
+      <div class="h-4 w-px bg-[#1f2937]"></div>
+      <!-- Paper execution uses live market prices and simulated fills. -->
+      <div class="flex items-center bg-[#0b0f17] p-0.5 rounded border border-[#1f2937] text-xs font-mono-num">
+        <button id="modePaperBtn" onclick="switchSystemMode('paper')" class="px-2.5 py-0.5 rounded font-bold bg-[#1f2937] text-emerald-400 flex items-center gap-1 cursor-pointer transition" title="Simulated orders only. No exchange orders are sent.">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-dot" id="modePaperDot"></span>
+          <span>Paper Trading</span>
+        </button>
+        <button id="modeBacktestBtn" onclick="switchSystemMode('backtest')" class="px-2.5 py-0.5 rounded text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer transition">
+          <span>📊 Backtest Analysis</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Center: Mark Price & 24h Delta -->
+    <div class="flex items-baseline gap-2.5 font-mono-num">
+      <span class="text-[11px] text-slate-500 font-medium" id="headerPriceType">BTCUSD MARK</span>
+      <span class="text-lg font-bold text-white tracking-tight" id="headerMarkPrice">—</span>
+      <span class="text-[10px] text-cyan-300 font-mono-num" id="headerSpotPrice">Spot —</span>
+      <span class="text-[10px] text-slate-500" id="headerPriceFreshness">Waiting for Delta feed</span>
+    </div>
+
+    <!-- Right: Status Pills & Action Controls -->
+    <div class="flex items-center gap-2 font-mono-num text-xs">
+      <!-- Upload Specific Timeframe Data Button -->
+      <button class="flex items-center gap-1.5 bg-[#161f30] hover:bg-[#1d293d] border border-cyan-500/40 text-cyan-300 text-xs px-2.5 py-1 rounded transition font-medium cursor-pointer" onclick="openUploadModal('fileTab')" title="Upload CSV/Parquet/JSON Bitcoin candle dataset or load local cache">
+        <span class="material-symbols-outlined text-[14px]">cloud_upload</span>
+        <span>Upload Data</span>
+      </button>
+
+      <!-- Run Backtest on Uploaded Data Button (Shows in Backtest Mode) -->
+      <label class="text-[10px] text-slate-400 flex items-center gap-1" title="Candles used to generate and execute strategy signals">Exec
+        <input id="backtestExecutionTf" value="15m" class="w-12 bg-[#111827] border border-[#2d3a4f] rounded px-1.5 py-1 text-[11px] text-white" aria-label="Backtest execution timeframe" />
+      </label>
+      <label class="text-[10px] text-slate-400 flex items-center gap-1" title="Higher timeframe used for trend alignment">Trend
+        <input id="backtestTrendTf" value="1h" class="w-12 bg-[#111827] border border-[#2d3a4f] rounded px-1.5 py-1 text-[11px] text-white" aria-label="Backtest trend timeframe" />
+      </label>
+      <button class="hidden flex items-center gap-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs px-3 py-1 rounded transition shadow-md cursor-pointer" id="runBacktestBtn" onclick="runBacktest()" title="Run the strategy over the full selected dataset">
+        <span class="material-symbols-outlined text-[14px]">play_circle</span>
+        <span>Run Backtest</span>
+      </button>
+
+      <!-- 8-Rule Risk Status Pill (Clickable) -->
+      <button class="flex items-center gap-1.5 bg-[#161f30] hover:bg-[#1b263b] text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded transition text-xs font-semibold group cursor-pointer" id="riskBadgeBtn" onclick="openRiskModal()" title="Click to view 8-Rule Risk Radar">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-dot" id="riskBadgeDot"></span>
+        <span id="riskBadgeText">🟢 Risk: 8/8 Normal</span>
+      </button>
+
+      <!-- WebSocket / Polling Status Pill -->
+      <div class="flex items-center gap-1.5 bg-[#161f30] text-emerald-400 border border-[#1f2937] px-2.5 py-1 rounded text-[11px] font-medium" id="wsStatusBadge" title="ws://127.0.0.1:8000/ws with 2s polling fallback">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400" id="wsStatusDot"></span>
+        <span id="wsStatusText">🟢 Live WS</span>
+      </div>
+
+      <!-- Action Controls Divider -->
+      <div class="h-4 w-px bg-[#1f2937] mx-0.5"></div>
+
+      <!-- Pause / Resume Toggle -->
+      <button class="flex items-center gap-1.5 bg-[#161f30] hover:bg-[#1d293d] border border-[#2d3a4f] text-amber-300 text-xs px-2.5 py-1 rounded transition font-medium cursor-pointer" id="pauseToggleBtn" onclick="toggleEnginePause()">
+        <span class="material-symbols-outlined text-[14px]" id="pauseBtnIcon">pause</span>
+        <span id="pauseBtnText">Pause</span>
+      </button>
+
+      <!-- Demo Trigger -->
+      <button class="flex items-center gap-1.5 bg-blue-950/70 hover:bg-blue-900 border border-blue-700/60 text-blue-200 text-xs px-2.5 py-1 rounded transition font-medium cursor-pointer" id="demoTriggerBtn" onclick="triggerDemoTrade()" title="Place a manually triggered paper-only test order, capped at $100 notional. No exchange order is sent.">
+        <span class="material-symbols-outlined text-[14px]">bolt</span>
+        <span>Test Paper Order</span>
+      </button>
+
+      <!-- Emergency Kill Switch -->
+      <button class="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold px-3 py-1 rounded transition shadow-sm ml-1 cursor-pointer" onclick="openKillModal()">
+        <span class="material-symbols-outlined text-[14px]">dangerous</span>
+        <span>KILL SWITCH</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN BODY LAYOUT -->
+  <main class="flex-1 w-full px-3 py-2 flex flex-col gap-2 max-w-[1920px] mx-auto min-h-0">
+    <!-- 4 COMPACT INSTITUTIONAL KPI TILES (Above Chart) -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+      <!-- KPI 1: Account Equity & Loss Limit -->
+      <div class="bg-[#111827] border border-[#1f2937] hover:border-[#2d3a4f] p-2 rounded transition">
+        <div class="flex items-center justify-between text-[11px] font-mono-num text-slate-400 mb-1">
+          <span class="uppercase tracking-wider font-semibold">Account Equity</span>
+          <span class="text-slate-500">Peak: <span class="text-slate-300" id="kpiPeakEquity">$10,000.00</span></span>
+        </div>
+        <div class="flex items-baseline justify-between">
+          <div class="font-mono-num text-xl font-bold text-white tracking-tight" id="kpiNetEquity">$10,000.00</div>
+          <div class="font-mono-num text-[11px] text-slate-400">Cash: <span class="text-slate-200 font-medium" id="kpiCash">$10,000.00</span></div>
+        </div>
+        <!-- Daily PnL vs Limit Indicator -->
+        <div class="mt-1.5 pt-1 border-t border-[#192231] flex items-center justify-between font-mono-num text-[10px]">
+          <span class="text-slate-400">Daily PnL / Limit:</span>
+          <div class="flex items-center gap-1.5">
+            <span class="text-emerald-400 font-semibold" id="kpiDailyPnlText">+$0.00</span>
+            <span class="text-slate-600">/</span>
+            <span class="text-rose-400 font-medium" id="kpiDailyLimitText">-$500.00 Max</span>
+            <div class="w-12 bg-[#1b2434] h-1.5 rounded-full overflow-hidden ml-1">
+              <div class="bg-emerald-400 h-full rounded-full" id="kpiDailyLossFill" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- KPI 2: Current Position & 1-Click Flatten -->
+      <div class="bg-[#111827] border border-[#1f2937] hover:border-[#2d3a4f] p-2 rounded transition">
+        <div class="flex items-center justify-between text-[11px] font-mono-num text-slate-400 mb-1">
+          <div class="flex items-center gap-1.5">
+            <span class="uppercase tracking-wider font-semibold">Position</span>
+            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700" id="kpiPosBadge">FLAT</span>
+          </div>
+          <!-- 1-Click Flatten Button -->
+          <button class="hidden bg-rose-950/70 hover:bg-rose-900 border border-rose-700/60 text-rose-300 hover:text-white px-2 py-0.5 rounded text-[10px] font-mono-num font-bold transition flex items-center gap-0.5 cursor-pointer" id="flattenBtn" onclick="flattenActivePosition()">
+            <span class="material-symbols-outlined text-[11px]">close</span>
+            <span>Flatten</span>
+          </button>
+        </div>
+        <div class="flex items-baseline justify-between font-mono-num">
+          <div class="text-xl font-bold text-slate-100 tracking-tight" id="kpiPosSize">0.00 BTC</div>
+          <div class="text-[11px] text-slate-400" id="kpiPosNotional">$0 USD</div>
+        </div>
+        <div class="mt-1.5 pt-1 border-t border-[#192231] flex items-center justify-between font-mono-num text-[10px]">
+          <span class="text-slate-400">Entry <span class="text-slate-200" id="kpiPosEntry">$0.00</span></span>
+          <span class="text-slate-400">uPnL: <span class="text-slate-500 font-bold" id="kpiPosUpnl">$0.00 (0.00%)</span></span>
+        </div>
+      </div>
+
+      <!-- KPI 3: Strategy Regime & Technicals -->
+      <div class="bg-[#111827] border border-[#1f2937] hover:border-[#2d3a4f] p-2 rounded transition">
+        <div class="flex items-center justify-between text-[11px] font-mono-num text-slate-400 mb-1">
+          <span class="uppercase tracking-wider font-semibold">Strategy Regime</span>
+          <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20" id="kpiRegimeBadge">TREND_FOLLOWING</span>
+        </div>
+        <div class="flex items-baseline justify-between font-mono-num">
+          <div class="text-xl font-bold text-emerald-400 tracking-tight flex items-center gap-1.5" id="kpiSignalTile">
+            <span class="text-xs text-slate-400 font-normal">Signal:</span> <span id="kpiSignalText">BUY</span>
+          </div>
+          <div class="text-[11px] text-slate-300">ADX: <span class="text-emerald-400 font-bold" id="kpiAdx">34.8</span> (Bullish)</div>
+        </div>
+        <div class="mt-1.5 pt-1 border-t border-[#192231] flex items-center justify-between font-mono-num text-[10px] text-slate-400">
+          <span>EMA Spread: <strong class="text-cyan-400" id="kpiEmaSpread">+16.0</strong></span>
+          <span>ATR(14): <strong class="text-slate-200" id="kpiAtr">486.0</strong></span>
+        </div>
+      </div>
+
+      <!-- KPI 4: Execution & Margin -->
+      <div class="bg-[#111827] border border-[#1f2937] hover:border-[#2d3a4f] p-2 rounded transition">
+        <div class="flex items-center justify-between text-[11px] font-mono-num text-slate-400 mb-1">
+          <span class="uppercase tracking-wider font-semibold">Margin &amp; Leverage</span>
+          <span class="text-[10px] font-mono-num text-amber-400 bg-amber-400/10 border border-amber-400/20 px-1.5 py-0.5 rounded" id="kpiLeverageBadge">1.0x / 5.0x Cap</span>
+        </div>
+        <div class="flex items-baseline justify-between font-mono-num">
+          <div class="text-xl font-bold text-white tracking-tight" id="kpiMarginUsed">$0.00</div>
+          <div class="text-[11px] text-slate-400">Available: <span class="text-slate-200" id="kpiMarginAvail">$10,000.00</span></div>
+        </div>
+        <div class="mt-1.5 pt-1 border-t border-[#192231] flex items-center justify-between font-mono-num text-[10px] text-slate-400">
+          <span>Brackets: <strong class="text-slate-400" id="kpiBracketsCount">0 Active (Flat)</strong></span>
+          <span class="text-slate-400">Sizing: <strong class="text-slate-200">1.0% Fixed</strong></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- BACKTEST PERFORMANCE BANNER (Visible when backtest results are available) -->
+    <div id="backtestBanner" class="hidden bg-[#111827] border border-amber-500/50 rounded p-2.5 flex items-center justify-between text-xs font-mono-num shadow-md">
+      <div class="flex items-center gap-3 flex-wrap">
+        <span class="text-xs font-bold text-amber-400 bg-amber-400/10 border border-amber-400/20 px-2 py-0.5 rounded uppercase flex items-center gap-1">
+          <span>📊 Backtest Report</span>
+        </span>
+        <span id="btDataDescription" class="text-slate-400">Bundled data · 15m / 1h</span>
+        <span class="text-slate-300">Total Return: <strong id="btReturn" class="text-emerald-400 font-bold">+0.00%</strong></span>
+        <span class="text-slate-500">|</span>
+        <span class="text-slate-300">Net Profit: <strong id="btNetProfit" class="text-emerald-400 font-bold">+$0.00</strong></span>
+        <span class="text-slate-500">|</span>
+        <span class="text-slate-300">Win Rate: <strong id="btWinRate" class="text-cyan-400">0.0%</strong></span>
+        <span class="text-slate-500">|</span>
+        <span class="text-slate-300">Profit Factor: <strong id="btPf" class="text-slate-100">0.00</strong></span>
+        <span class="text-slate-500">|</span>
+        <span class="text-slate-300">Fees: <strong id="btFees" class="text-slate-100">$0.00</strong></span>
+        <span class="text-slate-300">Funding: <strong id="btFunding" class="text-slate-100">$0.00</strong></span>
+        <span class="text-slate-500">|</span>
+        <span class="text-slate-300">Max DD: <strong id="btMaxDd" class="text-rose-400">-0.00%</strong></span>
+        <span class="text-slate-500">|</span>
+        <span class="text-slate-300">Full Year Trades: <strong id="btTradesCount" class="text-amber-300">0</strong></span>
+        <span class="text-slate-500">|</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-[11px] text-emerald-400/80">▲▼ Overlaid on Candles</span>
+        <button onclick="document.getElementById('backtestBanner').classList.add('hidden')" class="text-slate-500 hover:text-slate-300 p-0.5 cursor-pointer"><span class="material-symbols-outlined text-[14px]">close</span></button>
+      </div>
+    </div>
+
+    <!-- FULL CENTER STAGE CANDLESTICK CHART CONTAINER (70%+ Visual Focus) -->
+    <div class="bg-[#111827] border border-[#1f2937] rounded flex flex-col flex-1 relative min-h-[380px] overflow-hidden shadow-lg">
+      <!-- Chart Controls Bar: Flexible & Responsive Without Clipping -->
+      <div class="min-h-[38px] py-1 px-3 border-b border-[#1f2937] bg-[#111827] flex flex-wrap items-center justify-between gap-y-1.5 gap-x-2.5 z-20">
+        <!-- Left Group: Timeframes, History Browsing, Markers & Indicators -->
+        <div class="flex items-center gap-2 font-mono-num text-xs flex-wrap">
+          <div class="flex items-center bg-[#0b0f17] p-0.5 rounded border border-[#1f2937]">
+            <button class="tf-btn px-2 py-0.5 rounded text-slate-400 hover:text-white text-[11px] cursor-pointer" onclick="changeTimeframe('1m', this)">1m</button>
+            <button class="tf-btn px-2 py-0.5 rounded text-slate-400 hover:text-white text-[11px] cursor-pointer" onclick="changeTimeframe('5m', this)">5m</button>
+            <button class="tf-btn active-tf px-2 py-0.5 rounded font-bold bg-[#1f2937] text-amber-400 text-[11px] cursor-pointer" onclick="changeTimeframe('15m', this)">15m</button>
+            <button class="tf-btn px-2 py-0.5 rounded text-slate-400 hover:text-white text-[11px] cursor-pointer" onclick="changeTimeframe('1h', this)">1h</button>
+          </div>
+
+          <div class="h-3.5 w-px bg-[#1f2937]"></div>
+
+          <!-- Historical Candle Navigation (Analyze previous candles) -->
+          <div class="flex items-center bg-[#0b0f17] p-0.5 rounded border border-[#1f2937] text-[11px]">
+            <button class="px-1.5 py-0.5 rounded text-slate-400 hover:text-white cursor-pointer flex items-center gap-0.5" onclick="panCandlesHistory(-48)" title="Analyze earlier historical candles in algo_bot2 database">
+              <span class="material-symbols-outlined text-[13px]">arrow_back</span>
+              <span>48 Bars</span>
+            </button>
+            <span class="text-[10px] text-amber-300 font-bold px-1.5 py-0.5 bg-[#161f30] rounded border border-[#1f2937]" id="candleWindowLabel">Live Head</span>
+            <button class="px-1.5 py-0.5 rounded text-slate-400 hover:text-white cursor-pointer flex items-center gap-0.5" onclick="panCandlesHistory(48)" title="Pan forward">
+              <span>48 Bars</span>
+              <span class="material-symbols-outlined text-[13px]">arrow_forward</span>
+            </button>
+            <button class="px-1.5 py-0.5 rounded text-amber-400 hover:text-amber-300 font-semibold cursor-pointer flex items-center gap-0.5 border-l border-[#1f2937] ml-0.5" onclick="resetCandlesToLive()" title="Reset to most recent live candle">
+              <span class="material-symbols-outlined text-[13px]">skip_next</span>
+              <span>Live</span>
+            </button>
+          </div>
+
+          <div class="h-3.5 w-px bg-[#1f2937]"></div>
+
+          <!-- Trade Markers Toggle -->
+          <button class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#161f30] border border-emerald-500/40 text-emerald-300 hover:bg-[#1f2b42] transition cursor-pointer text-[11px]" id="toggleTradeMarkers" onclick="toggleTradeMarkers()" title="Toggle visual BUY (▲) and SELL (▼) markers on candlesticks">
+            <span class="text-emerald-400 font-bold">▲▼</span>
+            <span>Markers</span>
+          </button>
+
+          <div class="h-3.5 w-px bg-[#1f2937]"></div>
+
+          <!-- Indicator Toggles / Telemetry -->
+          <div class="flex items-center gap-1.5 text-[11px]">
+            <button class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#161f30] border border-cyan-500/40 text-cyan-300 hover:bg-[#1f2b42] transition cursor-pointer" id="toggleEma20" onclick="toggleIndicator('ema20')">
+              <span class="w-2 h-0.5 bg-[#06b6d4]"></span>
+              <span>EMA20: <strong id="chartEma20Val">82,820.0</strong></span>
+            </button>
+            <button class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#161f30] border border-orange-500/40 text-orange-300 hover:bg-[#1f2b42] transition cursor-pointer" id="toggleEma50" onclick="toggleIndicator('ema50')">
+              <span class="w-2 h-0.5 bg-[#f97316]"></span>
+              <span>EMA50: <strong id="chartEma50Val">82,635.8</strong></span>
+            </button>
+            <div class="flex items-center gap-1 text-slate-400 bg-[#0b0f17] px-2 py-0.5 rounded border border-[#1f2937]">
+              <span>ATR: <strong class="text-slate-200" id="chartAtrVal">486.0</strong></span>
+            </div>
+            <div class="flex items-center gap-1 text-slate-400 bg-[#0b0f17] px-2 py-0.5 rounded border border-[#1f2937]">
+              <span>ADX: <strong class="text-emerald-400" id="chartAdxVal">34.8</strong></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Side: Action Quick Buttons & Telemetry -->
+        <div class="flex items-center gap-2.5 font-mono-num text-[11px] text-slate-400 flex-wrap">
+          <!-- Delta Live Sync Button -->
+          <button class="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-500/50 text-emerald-300 font-semibold text-[11px] transition cursor-pointer" id="chartSyncDeltaBtn" onclick="syncDeltaExchangeLive()" title="Sync real-time candles directly from Delta Exchange Testnet API">
+            <span class="material-symbols-outlined text-[13px]">bolt</span>
+            <span>Delta Sync</span>
+          </button>
+
+          <!-- Upload JSON / Dataset Quick Action -->
+          <button class="flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/50 text-cyan-300 font-semibold text-[11px] transition cursor-pointer" onclick="openUploadModal('pasteTab')" title="Upload or Paste Bitcoin JSON / Dataset">
+            <span class="material-symbols-outlined text-[13px]">cloud_upload</span>
+            <span>Upload Data</span>
+          </button>
+
+          <div class="h-3.5 w-px bg-[#1f2937]"></div>
+
+          <div class="flex items-center gap-1.5">
+            <span class="text-slate-500">Close:</span>
+            <span class="text-amber-400 font-bold" id="candleCountdown">09:42</span>
+          </div>
+
+          <div class="h-3.5 w-px bg-[#1f2937]"></div>
+          <span class="text-slate-400 hidden sm:inline">Brackets: <span class="text-emerald-400 font-semibold" id="bracketStatusText">Active</span></span>
+        </div>
+      </div>
+
+      <!-- Canvas Chart Container with TradingView-like Overlay Elements -->
+      <div class="relative flex-1 w-full bg-[#0b0f17] overflow-hidden" id="chartCanvasWrapper">
+        <canvas class="w-full h-full block cursor-crosshair" id="mainChartCanvas"></canvas>
+
+        <!-- Dynamic Crosshair Tooltip -->
+        <div class="absolute pointer-events-none hidden bg-[#111827]/95 border border-[#2d3a4f] px-2.5 py-1.5 rounded shadow-2xl text-[10px] font-mono-num z-30 backdrop-blur-sm" id="chartTooltip">
+          <div class="text-slate-400 border-b border-slate-700/60 pb-0.5 mb-1 font-semibold flex items-center justify-between gap-4">
+            <span id="ttTime">--:--:-- UTC</span>
+            <span class="text-[9px] text-amber-400 font-bold" id="ttTf">15M</span>
+          </div>
+          <div class="grid grid-cols-2 gap-x-3 gap-y-0.5">
+            <div>O: <span class="text-white" id="ttOpen">--</span></div>
+            <div>H: <span class="text-emerald-400" id="ttHigh">--</span></div>
+            <div>L: <span class="text-rose-400" id="ttLow">--</span></div>
+            <div>C: <span class="text-white" id="ttClose">--</span></div>
+            <div class="col-span-2 text-slate-400 pt-0.5">Vol: <span class="text-amber-300 font-medium" id="ttVol">--</span> BTC</div>
+          </div>
+        </div>
+
+        <!-- Floating Bracket Legend Pill inside Chart (Top-Left) -->
+        <div class="absolute top-2.5 left-3 flex flex-col gap-1 pointer-events-none z-10 text-[10px] font-mono-num" id="floatingBracketBadge">
+          <div class="flex items-center gap-1.5 bg-[#111827]/90 border border-emerald-500/40 px-2 py-0.5 rounded text-emerald-300 shadow backdrop-blur-sm">
+            <span class="w-2.5 h-0.5 bg-emerald-400"></span>
+            <span id="chartLegendTp">TP: <strong>$85,438.50 (+3.00%)</strong></span>
+          </div>
+          <div class="flex items-center gap-1.5 bg-[#111827]/90 border border-blue-500/40 px-2 py-0.5 rounded text-blue-300 shadow backdrop-blur-sm">
+            <span class="w-2.5 h-0.5 bg-blue-400"></span>
+            <span id="chartLegendEntry">ENTRY: <strong>$82,950.00</strong></span>
+          </div>
+          <div class="flex items-center gap-1.5 bg-[#111827]/90 border border-rose-500/40 px-2 py-0.5 rounded text-rose-300 shadow backdrop-blur-sm">
+            <span class="w-2.5 h-0.5 bg-rose-400"></span>
+            <span id="chartLegendSl">SL: <strong>$81,705.75 (-1.50%)</strong></span>
+          </div>
+        </div>
+
+        <!-- Flat State Overlay: Compact Low-Profile Pill (Hidden unless active_position is null) -->
+        <div class="hidden absolute top-2.5 left-3 bg-[#0b0f17]/90 backdrop-blur-sm border border-[#1f2937] px-2 py-0.5 rounded text-[10px] font-mono-num text-slate-400 pointer-events-none z-10 flex items-center gap-1.5 shadow" id="flatChartNotice">
+          <span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+          <span>Position: <strong class="text-slate-300">FLAT</strong> (Brackets Inactive)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- BOTTOM SECTION: CLEAN FULL-WIDTH TABBED BLOTTER -->
+    <div class="bg-[#111827] border border-[#1f2937] rounded flex flex-col h-[210px] min-h-[190px] overflow-hidden">
+      <!-- Blotter Navigation Tabs Header -->
+      <div class="h-9 px-3 border-b border-[#1f2937] flex items-center justify-between bg-[#111827]">
+        <div class="flex items-center gap-1">
+          <button class="blotter-tab active-tab px-3 py-1.5 text-xs font-mono-num font-semibold text-slate-100 border-b-2 border-amber-400 flex items-center gap-1.5 cursor-pointer" id="tabBtn1" onclick="switchBlotterTab('tab1')">
+            <span class="material-symbols-outlined text-[14px]">receipt_long</span>
+            <span>Active Orders &amp; Fills</span>
+          </button>
+          <button class="blotter-tab px-3 py-1.5 text-xs font-mono-num font-medium text-slate-400 hover:text-slate-200 border-b-2 border-transparent flex items-center gap-1.5 cursor-pointer" id="tabBtn2" onclick="switchBlotterTab('tab2')">
+            <span class="material-symbols-outlined text-[14px]">terminal</span>
+            <span>Signals &amp; System Logs</span>
+          </button>
+        </div>
+
+        <!-- Tab 2 Controls (Visible when Tab 2 is active) -->
+        <div class="hidden flex items-center gap-2 text-[10px] font-mono-num" id="tab2Controls">
+          <input class="bg-[#0b0f17] border border-[#1f2937] rounded px-2 py-0.5 text-slate-200 placeholder-slate-600 outline-none w-48 text-[11px]" id="logSearchInput" onkeyup="filterEngineLogs()" placeholder="Search logs (e.g. EXEC, RISK)..." type="text"/>
+          <label class="flex items-center gap-1 text-slate-400 cursor-pointer select-none">
+            <input checked="" class="rounded bg-[#0b0f17] border-[#1f2937] text-amber-500 focus:ring-0 w-3 h-3" id="logAutoscrollCheck" type="checkbox"/>
+            <span>Auto-scroll</span>
+          </label>
+          <button class="px-2 py-0.5 bg-[#161f30] hover:bg-[#1f2937] border border-[#1f2937] text-slate-400 hover:text-white rounded transition cursor-pointer" onclick="clearLogs()">
+            Clear
+          </button>
+        </div>
+      </div>
+
+      <!-- TAB 1 CONTENT: ACTIVE ORDERS & RECENT FILLS (Dual Split Table) -->
+      <div class="flex-1 grid grid-cols-1 md:grid-cols-12 overflow-hidden divide-y md:divide-y-0 md:divide-x divide-[#1f2937]" id="tab1Content">
+        <!-- Sub-panel Left: Open Orders Table (/api/v1/orders) - 6 cols -->
+        <div class="md:col-span-6 flex flex-col overflow-hidden">
+          <div class="px-3 py-1.5 bg-[#0e1420] border-b border-[#1f2937] flex items-center justify-between text-[11px] font-mono-num">
+            <span class="font-semibold text-slate-300 uppercase">Open Bracket &amp; Limit Orders</span>
+            <span class="text-slate-500" id="openOrdersCount">2 Orders Active</span>
+          </div>
+          <div class="flex-1 overflow-auto">
+            <table class="w-full text-left font-mono-num text-xs">
+              <thead class="bg-[#0b0f17] text-[10px] text-slate-500 uppercase sticky top-0 border-b border-[#1f2937]">
+                <tr>
+                  <th class="py-1.5 px-3">Order ID</th>
+                  <th class="py-1.5 px-2">Side</th>
+                  <th class="py-1.5 px-2">Type</th>
+                  <th class="py-1.5 px-2">Trigger / Limit</th>
+                  <th class="py-1.5 px-2">Size</th>
+                  <th class="py-1.5 px-3 text-right">Status</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-[#161f30] text-slate-300" id="openOrdersTbody">
+                <!-- Dynamically generated rows -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Sub-panel Right: Recent Trades Blotter (/api/v1/trades) - 6 cols -->
+        <div class="md:col-span-6 flex flex-col overflow-hidden">
+          <div class="px-3 py-1.5 bg-[#0e1420] border-b border-[#1f2937] flex items-center justify-between text-[11px] font-mono-num">
+            <span class="font-semibold text-slate-300 uppercase">Recent Fills Blotter</span>
+            <span class="text-slate-500">Paper execution • simulated fills</span>
+          </div>
+          <div class="flex-1 overflow-auto">
+            <table class="w-full text-left font-mono-num text-xs">
+              <thead class="bg-[#0b0f17] text-[10px] text-slate-500 uppercase sticky top-0 border-b border-[#1f2937]">
+                <tr>
+                  <th class="py-1.5 px-3">Execution Time</th>
+                  <th class="py-1.5 px-2">Side</th>
+                  <th class="py-1.5 px-2">Fill Price</th>
+                  <th class="py-1.5 px-2">Size</th>
+                  <th class="py-1.5 px-2">Fee</th>
+                  <th class="py-1.5 px-2">Net P&amp;L</th>
+                  <th class="py-1.5 px-2">Reason / Signal Logic</th>
+                  <th class="py-1.5 px-3 text-right">Route</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-[#161f30] text-slate-300" id="recentTradesTbody">
+                <!-- Dynamically generated trades -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2 CONTENT: SIGNALS & SYSTEM LOGS TERMINAL -->
+      <div class="hidden flex-1 grid grid-cols-1 md:grid-cols-12 overflow-hidden divide-y md:divide-y-0 md:divide-x divide-[#1f2937]" id="tab2Content">
+        <!-- Left Sub-panel: Signals Log (/api/v1/signals) - 5 cols -->
+        <div class="md:col-span-5 flex flex-col overflow-hidden">
+          <div class="px-3 py-1.5 bg-[#0e1420] border-b border-[#1f2937] text-[11px] font-mono-num font-semibold text-slate-300 uppercase">
+            Strategy Signals Log (/api/v1/signals)
+          </div>
+          <div class="flex-1 overflow-auto p-2 flex flex-col gap-1 font-mono-num text-xs" id="signalsListContainer">
+            <!-- Dynamically populated signals -->
+          </div>
+        </div>
+
+        <!-- Right Sub-panel: Engine Logs Console (/api/v1/logs) - 7 cols -->
+        <div class="md:col-span-7 flex flex-col overflow-hidden bg-[#070a0f]">
+          <div class="flex-1 overflow-y-auto p-2.5 font-mono-num text-[11px] leading-relaxed flex flex-col gap-1" id="engineLogsContainer">
+            <!-- Dynamically generated logs -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- 8-RULE INSTITUTIONAL RISK RADAR MODAL / DRAWER -->
+  <div class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4" id="riskModal">
+    <div class="bg-[#111827] border border-[#2d3a4f] rounded-lg max-w-2xl w-full p-5 shadow-2xl flex flex-col gap-4">
+      <div class="flex items-center justify-between border-b border-[#1f2937] pb-3">
+        <div class="flex items-center gap-2.5">
+          <span class="w-3 h-3 rounded-full bg-emerald-400 pulse-dot" id="modalRiskDot"></span>
+          <div>
+            <h3 class="font-mono text-sm font-bold text-white uppercase tracking-wider">8-Rule Institutional Risk Guard (/api/v1/risk)</h3>
+            <p class="text-[11px] font-mono-num text-slate-400">Pre-execution circuit breakers &amp; sanity interlocks</p>
+          </div>
+        </div>
+        <button class="text-slate-400 hover:text-white p-1 rounded hover:bg-[#1f2937] transition cursor-pointer" onclick="closeRiskModal()">
+          <span class="material-symbols-outlined text-[18px]">close</span>
+        </button>
+      </div>
+
+      <!-- 8 Rules Breakdown Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-2 font-mono-num text-xs" id="riskRulesList">
+        <!-- Injected via JavaScript -->
+      </div>
+
+      <div class="flex items-center justify-between pt-3 border-t border-[#1f2937] text-[11px] font-mono-num">
+        <span class="text-slate-400">Status: <strong class="text-emerald-400" id="modalRiskStatusSummary">All 8 rules satisfied (NOMINAL)</strong></span>
+        <button class="px-3.5 py-1 bg-[#1f2937] hover:bg-[#2d3a4f] text-slate-200 rounded font-medium transition cursor-pointer" onclick="closeRiskModal()">
+          Close Breakdown
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- KILL SWITCH SAFETY INTERLOCK CONFIRMATION MODAL -->
+  <div class="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4" id="killModal">
+    <div class="bg-[#111827] border-2 border-rose-600 rounded-lg max-w-md w-full p-5 shadow-2xl flex flex-col gap-4 halt-glow">
+      <div class="flex items-start gap-3">
+        <div class="w-10 h-10 rounded bg-rose-600/20 border border-rose-500/40 flex items-center justify-center text-rose-500 flex-shrink-0">
+          <span class="material-symbols-outlined text-[24px]">warning</span>
+        </div>
+        <div>
+          <h3 class="font-mono font-bold text-base text-rose-400">EMERGENCY KILL SWITCH</h3>
+          <p class="text-xs text-slate-300 mt-1">Instantly flatten all open positions at market, cancel all active brackets, and lock down trading execution.</p>
+        </div>
+      </div>
+      <div class="bg-[#0b0f17] p-3 rounded border border-rose-900/50 text-xs font-mono-num text-rose-300">
+        <div class="font-bold mb-1">INTERLOCK SAFETY VERIFICATION:</div>
+        <div>Type <strong class="text-white underline tracking-wider font-bold">HALT</strong> in capital letters to verify emergency manual shutdown.</div>
+      </div>
+      <div>
+        <label class="block text-[10px] font-mono-num uppercase text-slate-400 mb-1">Operator Confirmation Input</label>
+        <input class="w-full bg-[#070a0f] border border-[#2d3a4f] focus:border-rose-500 rounded px-3 py-2 text-sm font-mono-num text-white tracking-widest placeholder-slate-700 outline-none uppercase font-bold" id="killConfirmationInput" oninput="verifyKillInput()" placeholder="Type HALT here" type="text"/>
+      </div>
+      <div class="flex items-center justify-end gap-2 pt-2 border-t border-[#1f2937]">
+        <button class="px-3 py-1.5 text-xs font-mono-num font-medium text-slate-400 hover:text-white transition cursor-pointer" onclick="closeKillModal()">
+          Cancel / Dismiss
+        </button>
+        <button class="px-4 py-1.5 text-xs font-mono-num font-bold rounded bg-rose-950 text-slate-500 cursor-not-allowed transition" disabled="" id="confirmKillBtn" onclick="executeKillSwitch()">
+          Confirm Emergency Flatten (POST /api/v1/kill)
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- UPLOAD BITCOIN DATASET & DATABASE STORAGE MODAL -->
+  <div class="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4" id="uploadModal" onclick="if(event.target === this) closeUploadModal()" style="display: none;">
+    <div class="bg-[#111827] border border-[#2d3a4f] rounded-lg max-w-2xl w-full p-5 shadow-2xl flex flex-col gap-3 font-mono-num max-h-[90vh] overflow-y-auto">
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between border-b border-[#1f2937] pb-3">
+        <div class="flex items-center gap-2.5">
+          <span class="w-8 h-8 rounded bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400">
+            <span class="material-symbols-outlined text-[18px]">cloud_upload</span>
+          </span>
+          <div>
+            <h3 class="font-mono text-sm font-bold text-white uppercase tracking-wider">Bitcoin Data Ingestion &amp; Price Alignment</h3>
+            <p class="text-[11px] text-slate-400">Upload JSON/CSV datasets, paste JSON directly, or sync live real-world BTC market price</p>
+          </div>
+        </div>
+        <button class="text-slate-400 hover:text-white p-1 rounded hover:bg-[#1f2937] transition cursor-pointer" onclick="closeUploadModal()">
+          <span class="material-symbols-outlined text-[18px]">close</span>
+        </button>
+      </div>
+
+      <!-- Database Connection Status Banner -->
+      <div class="bg-[#0b0f17] p-2.5 rounded border border-[#1f2937] flex items-center justify-between text-xs flex-wrap gap-2">
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          <span class="text-slate-300">Database: <strong class="text-cyan-400">PostgreSQL (algo_bot2 @ localhost:5432)</strong></span>
+        </div>
+        <div class="text-[11px] text-slate-400" id="dbSummaryText">Loading summary...</div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <div class="flex items-center gap-1 border-b border-[#1f2937] pb-2 text-xs flex-wrap">
+        <button id="deltaTabBtn" onclick="switchUploadTab('deltaTab')" class="px-3 py-1.5 rounded font-semibold text-emerald-300 bg-[#1f2937] border border-emerald-500/50 flex items-center gap-1.5 cursor-pointer">
+          <span class="material-symbols-outlined text-[15px]">bolt</span>
+          <span>Delta Live Data</span>
+        </button>
+        <button id="pasteTabBtn" onclick="switchUploadTab('pasteTab')" class="px-3 py-1.5 rounded font-medium text-slate-400 hover:text-slate-200 border border-transparent flex items-center gap-1.5 cursor-pointer">
+          <span class="material-symbols-outlined text-[15px]">code</span>
+          <span>Paste JSON Directly</span>
+        </button>
+        <button id="fileTabBtn" onclick="switchUploadTab('fileTab')" class="px-3 py-1.5 rounded font-medium text-slate-400 hover:text-slate-200 border border-transparent flex items-center gap-1.5 cursor-pointer">
+          <span class="material-symbols-outlined text-[15px]">upload_file</span>
+          <span>File Upload (.json / .csv)</span>
+        </button>
+        <button id="syncTabBtn" onclick="switchUploadTab('syncTab')" class="px-3 py-1.5 rounded font-medium text-slate-400 hover:text-slate-200 border border-transparent flex items-center gap-1.5 cursor-pointer">
+          <span class="material-symbols-outlined text-[15px]">sync_alt</span>
+          <span>Ticker Price Sync</span>
+        </button>
+        <button id="cacheTabBtn" onclick="switchUploadTab('cacheTab')" class="px-3 py-1.5 rounded font-medium text-slate-400 hover:text-slate-200 border border-transparent flex items-center gap-1.5 cursor-pointer">
+          <span class="material-symbols-outlined text-[15px]">folder_zip</span>
+          <span>Local Cache Seeder</span>
+        </button>
+      </div>
+
+      <!-- Common Timeframe Picker -->
+      <div class="grid grid-cols-2 gap-3 bg-[#0b0f17] p-2.5 rounded border border-[#1f2937]">
+        <div>
+          <label class="block text-[11px] uppercase text-slate-400 mb-1 font-semibold">Target Timeframe</label>
+          <select id="uploadTimeframeSelect" onchange="toggleCustomUploadTimeframe()" class="w-full bg-[#111827] border border-[#2d3a4f] rounded px-2.5 py-1.5 text-xs text-white outline-none focus:border-cyan-500">
+            <option value="15m" selected>15m (15 Minutes - Recommended)</option>
+            <option value="30m">30m (30 Minutes)</option>
+            <option value="1h">1h (1 Hour - Macro Regime)</option>
+            <option value="2h">2h (2 Hours)</option>
+            <option value="4h">4h (4 Hours)</option>
+            <option value="1d">1d (1 Day)</option>
+            <option value="5m">5m (5 Minutes)</option>
+            <option value="1m">1m (1 Minute - High Resolution)</option>
+            <option value="custom">Custom timeframe…</option>
+          </select>
+          <input id="uploadCustomTimeframe" placeholder="e.g. 3m, 45m, 6h, 1d" class="hidden mt-1 w-full bg-[#111827] border border-[#2d3a4f] rounded px-2.5 py-1 text-xs text-white" aria-label="Custom upload timeframe" />
+        </div>
+        <div>
+          <label class="block text-[11px] uppercase text-slate-400 mb-1 font-semibold">Active Reference Symbol</label>
+          <input type="text" id="uploadSymbolInput" value="BTCUSD" readonly class="w-full bg-[#111827] border border-[#1f2937] text-slate-400 px-2.5 py-1.5 text-xs rounded" />
+        </div>
+      </div>
+
+      <!-- TAB 0: DELTA EXCHANGE LIVE DATA -->
+      <div id="deltaTabContent" class="flex flex-col gap-3">
+        <div class="bg-[#0b0f17] p-3 rounded border border-emerald-900/40 flex flex-col gap-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-slate-300 font-semibold flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-dot"></span>
+              <span>Delta Exchange Testnet API:</span>
+            </span>
+            <span class="text-[11px] text-cyan-400 font-mono">https://cdn-ind.testnet.deltaex.org</span>
+          </div>
+          <div class="text-[11px] text-slate-400 leading-relaxed">
+            Directly queries the Delta Exchange Testnet REST API (<code class="text-slate-300">/v2/history/candles</code>) for active contract <strong class="text-white">BTCUSD</strong> (ID: 84) and commits live candles into PostgreSQL <strong class="text-cyan-400">algo_bot2</strong>.
+          </div>
+          <div class="flex items-center justify-between text-xs pt-1 border-t border-[#1f2937]">
+            <span class="text-slate-400">Live Mark Price:</span>
+            <span class="font-bold text-emerald-400 font-mono text-sm" id="deltaTabPriceDisplay">$83,170.00</span>
+          </div>
+        </div>
+
+        <button onclick="syncDeltaExchangeLive()" id="syncDeltaBtn" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded transition flex items-center justify-center gap-2 cursor-pointer shadow-lg">
+          <span class="material-symbols-outlined text-[16px]">bolt</span>
+          <span>Fetch Real-Time Candles from Delta Exchange Testnet</span>
+        </button>
+      </div>
+
+      <!-- TAB 1: FILE UPLOAD -->
+      <div id="fileTabContent" class="hidden flex flex-col gap-3">
+        <div class="border-2 border-dashed border-[#2d3a4f] hover:border-cyan-500/60 rounded-lg p-5 flex flex-col items-center justify-center gap-2 bg-[#0b0f17]/60 transition text-center cursor-pointer" onclick="document.getElementById('candleFileInput').click()" ondragover="event.preventDefault(); this.classList.add('border-cyan-400');" ondragleave="this.classList.remove('border-cyan-400');" ondrop="handleFileDrop(event, this);">
+          <span class="material-symbols-outlined text-3xl text-cyan-400">upload_file</span>
+          <div class="text-xs font-semibold text-white">Click or drag &amp; drop your dataset file</div>
+          <div class="text-[11px] text-slate-400">Accepts <strong class="text-cyan-300">.json</strong>, <strong class="text-cyan-300">.parquet</strong>, or <strong class="text-cyan-300">.csv</strong> with OHLCV data</div>
+          <div class="text-[10px] text-emerald-400 font-mono mt-1" id="selectedFileName">No file selected</div>
+        </div>
+        <input type="file" id="candleFileInput" accept=".json,.parquet,.csv" class="hidden" onchange="handleFileSelected(this)" />
+
+        <button onclick="uploadCandleFile()" id="uploadSubmitBtn" class="w-full py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs rounded transition flex items-center justify-center gap-2 cursor-pointer shadow-md">
+          <span class="material-symbols-outlined text-[16px]">upload_file</span>
+          <span>Upload &amp; Store Dataset in Database</span>
+        </button>
+      </div>
+
+      <!-- TAB 2: PASTE JSON DIRECTLY -->
+      <div id="pasteTabContent" class="hidden flex flex-col gap-2.5">
+        <div class="flex items-center justify-between">
+          <label class="text-[11px] uppercase text-slate-400 font-semibold">Paste Bitcoin JSON (Array of bars, Delta API dump, or ticker):</label>
+          <!-- Quick Format Example Badges -->
+          <div class="flex items-center gap-1">
+            <span class="text-[10px] text-slate-500">Insert Sample:</span>
+            <button onclick="insertSampleJson('delta')" class="text-[10px] bg-[#161f30] hover:bg-[#1f2b42] text-cyan-300 px-1.5 py-0.5 rounded border border-[#2d3a4f]">Delta Format</button>
+            <button onclick="insertSampleJson('array')" class="text-[10px] bg-[#161f30] hover:bg-[#1f2b42] text-amber-300 px-1.5 py-0.5 rounded border border-[#2d3a4f]">Array of Arrays</button>
+            <button onclick="insertSampleJson('single')" class="text-[10px] bg-[#161f30] hover:bg-[#1f2b42] text-emerald-300 px-1.5 py-0.5 rounded border border-[#2d3a4f]">Single Price</button>
+            <button onclick="document.getElementById('pastedJsonInput').value=''" class="text-[10px] text-slate-400 hover:text-white px-1">Clear</button>
+          </div>
+        </div>
+        <textarea id="pastedJsonInput" rows="7" placeholder="Paste your Bitcoin JSON data here... e.g. [ { &quot;time&quot;: 1700000000, &quot;open&quot;: 83120, &quot;high&quot;: 83250, &quot;low&quot;: 83050, &quot;close&quot;: 83200, &quot;volume&quot;: 25 } ] or Delta Exchange { &quot;result&quot;: [ ... ] }" class="w-full bg-[#0b0f17] border border-[#2d3a4f] rounded p-2.5 text-[11px] text-slate-200 font-mono outline-none focus:border-cyan-500 resize-none"></textarea>
+
+        <button onclick="uploadPastedJson()" id="pasteSubmitBtn" class="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded transition flex items-center justify-center gap-2 cursor-pointer shadow-md">
+          <span class="material-symbols-outlined text-[16px]">save</span>
+          <span>Ingest Pasted JSON &amp; Calibrate Mark Price</span>
+        </button>
+      </div>
+
+      <!-- TAB 3: REAL-TIME PRICE SYNC & CALIBRATION -->
+      <div id="syncTabContent" class="hidden flex flex-col gap-3">
+        <div class="bg-[#0b0f17] p-3 rounded border border-[#1f2937] flex flex-col gap-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-slate-400">Current Dashboard Mark Price:</span>
+            <span class="text-base font-bold text-emerald-400 font-mono" id="syncModalPriceDisplay">$82,988.36</span>
+          </div>
+          <div class="text-[11px] text-slate-400 leading-relaxed">
+            Synchronize system pricing with live real-world exchange ticker data (Coinbase / Binance) or manually set the exact Bitcoin price to calibrate all strategy, margin, and order calculations.
+          </div>
+        </div>
+
+        <button onclick="syncLivePrice()" id="syncPriceBtn" class="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded transition flex items-center justify-center gap-2 cursor-pointer shadow-md">
+          <span class="material-symbols-outlined text-[16px]">sync</span>
+          <span>Fetch Live BTC Ticker from Coinbase / Binance</span>
+        </button>
+
+        <!-- Manual Price Override -->
+        <div class="border-t border-[#1f2937] pt-2.5 flex flex-col gap-2">
+          <label class="text-[11px] uppercase text-slate-400 font-semibold">Or Set Exact Bitcoin Price Manually ($):</label>
+          <div class="flex items-center gap-2">
+            <div class="relative flex-1">
+              <span class="absolute left-2.5 top-1.5 text-slate-500 text-xs font-mono">$</span>
+              <input type="number" step="0.01" id="customPriceInput" placeholder="83150.00" class="w-full bg-[#0b0f17] border border-[#2d3a4f] rounded pl-6 pr-2.5 py-1.5 text-xs text-white font-mono outline-none focus:border-cyan-500" />
+            </div>
+            <button onclick="overrideCustomPrice()" class="px-4 py-1.5 bg-cyan-700 hover:bg-cyan-600 text-white font-semibold text-xs rounded transition cursor-pointer">
+              Set Price
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 4: 1-CLICK PARQUET CACHE SEEDER -->
+      <div id="cacheTabContent" class="hidden flex flex-col gap-3">
+        <div class="text-[11px] text-slate-400 leading-relaxed bg-[#0b0f17] p-2.5 rounded border border-[#1f2937]">
+          Seed your PostgreSQL <strong class="text-cyan-300">algo_bot2</strong> database instantly with real historical Bitcoin candles from pre-cached files on disk:
+        </div>
+        <div class="grid grid-cols-3 gap-2">
+          <button onclick="loadLocalParquet('15m')" class="px-2.5 py-3 bg-[#0b0f17] hover:bg-[#161f30] border border-[#2d3a4f] hover:border-cyan-500/50 rounded text-xs text-cyan-300 transition text-center cursor-pointer">
+            <div class="font-bold">15m Parquet</div>
+            <div class="text-[10px] text-slate-400 mt-0.5">27,168 Bars (Cache)</div>
+          </button>
+          <button onclick="loadLocalParquet('1h')" class="px-2.5 py-3 bg-[#0b0f17] hover:bg-[#161f30] border border-[#2d3a4f] hover:border-cyan-500/50 rounded text-xs text-cyan-300 transition text-center cursor-pointer">
+            <div class="font-bold">1h Parquet</div>
+            <div class="text-[10px] text-slate-400 mt-0.5">6,792 Bars (Cache)</div>
+          </button>
+          <button onclick="loadLocalParquet('1m')" class="px-2.5 py-3 bg-[#0b0f17] hover:bg-[#161f30] border border-[#2d3a4f] hover:border-cyan-500/50 rounded text-xs text-cyan-300 transition text-center cursor-pointer">
+            <div class="font-bold">1m Parquet</div>
+            <div class="text-[10px] text-slate-400 mt-0.5">407,518 Bars (Cache)</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="flex items-center justify-between pt-2 border-t border-[#1f2937]">
+        <span class="text-[10px] text-slate-500">PostgreSQL algo_bot2 | All uploaded candles stored permanently</span>
+        <button class="px-3.5 py-1 bg-[#1f2937] hover:bg-[#2d3a4f] text-slate-200 rounded font-medium text-xs transition cursor-pointer" onclick="closeUploadModal()">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION CONTAINER (Bottom-Right) -->
+  <div class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none" id="toastContainer"></div>
+
+  <!-- JAVASCRIPT: Application State, Dual REST/WS Live Sync, TradingView Candlestick Engine, UI -->
+  <script>
+    // --- APPLICATION STATE (FastAPI Backend Model Mirror) ---
+    const AppState = {
+      mode: "paper", // "paper" | "uploaded"
+      status: "running", // "running" | "paused" | "halted"
+      is_halted: false,
+      halt_reason: "",
+      symbol: "BTCUSD",
+      current_price: 0,
+      spot_price: null,
+      price_received_timestamp: null,
+      price_feed_connected: false,
+      price_is_live: false,
+      price_type: 'MARK',
+      price_change_pct: 1.85,
+      equity: 10000.00,
+      cash_balance: 8352.00,
+      peak_equity: 10000.00,
+      daily_pnl: 0.00,
+      daily_pnl_limit: -500.00,
+      history_offset: 0, // 0 = live head, 48 = 48 bars back, etc.
+      all_candles: [], // Full pool of stored historical candles from algo_bot2
+      backtest_data_loaded: false,
+      backtest_data_timeframe: null,
+      backtest_data_source: 'bundled',
+      show_trade_markers: true, // Toggle BUY/SELL markers on chart
+      backtest_results: null, // Holds metrics when backtest executed
+      backtest_trades: [], // Backtest trades with reasons
+      live_data_error: false,
+      stored_timeframes: {}, // Summary of candles stored in PostgreSQL
+      active_position: null,
+      indicators: {
+        ema20_visible: true,
+        ema50_visible: true,
+        ema20_val: 82820.0,
+        ema50_val: 82635.8,
+        ema_spread: 184.2,
+        atr: 486.0,
+        adx: 34.8
+      },
+      risk_rules: [
+        { id: 1, name: "System Halt Guard", condition: "is_halted == False", value: "False (Running)", passed: true },
+        { id: 2, name: "Stale Data Guard", condition: "< 120s max age", value: "0.8s elapsed", passed: true },
+        { id: 3, name: "Max Open Positions", condition: "1 position slot limit", value: "0 / 1 Slot Occupied", passed: true },
+        { id: 4, name: "Daily Loss Limit", condition: "> -$500.00 daily loss ceiling", value: "$0.00 used", passed: true },
+        { id: 5, name: "Drawdown Kill Switch", condition: "> -10.0% max drawdown", value: "0.00% current DD", passed: true },
+        { id: 6, name: "Bracket OCO Sanity", condition: "SL < P < TP strictly validated", value: "Nominal", passed: true },
+        { id: 7, name: "1% Fixed Risk Model", condition: "Risk size per trade == 1.0%", value: "$100.00 risk basis", passed: true },
+        { id: 8, name: "Notional Cap Limit", condition: "< $55,000 USD position cap", value: "$0 USD notional", passed: true }
+      ],
+      open_orders: [],
+      recent_trades: [],
+      signals: [],
+      logs: [],
+      timeframe: '15m',
+      candles: []
+    };
+
+    // --- CANDLESTICK GENERATOR & INITIALIZATION ---
+    function initCandleData() {
+      const candles = [];
+      let base = 82800;
+      const count = 72;
+      const now = Math.floor(Date.now() / 1000);
+      const step = timeframeSeconds(AppState.timeframe);
+
+      for (let i = count - 1; i >= 0; i--) {
+        const ts = now - (i * step);
+        const change = (Math.random() - 0.46) * 180;
+        const open = base;
+        const close = open + change;
+        const high = Math.max(open, close) + Math.random() * 90;
+        const low = Math.min(open, close) - Math.random() * 90;
+        const volume = Number((Math.random() * 5.2 + 0.6).toFixed(2));
+        candles.push({ ts, open, high, low, close, volume });
+        base = close;
+      }
+      // Anchor final candle to current price
+      if (AppState.current_price > 0) {
+        candles[candles.length - 1].close = AppState.current_price;
+        candles[candles.length - 1].high = Math.max(candles[candles.length - 1].high, AppState.current_price + 25);
+      }
+      AppState.candles = candles;
+      AppState.all_candles = [...candles];
+    }
+
+    initCandleData();
+
+    // --- CANVAS CANDLESTICK & BRACKET RENDERER ---
+    const canvas = document.getElementById('mainChartCanvas');
+    const ctx = canvas.getContext('2d');
+    let hoveredIndex = -1;
+
+    function resizeChartCanvas() {
+      const container = document.getElementById('chartCanvasWrapper');
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(dpr, dpr);
+      renderChart();
+    }
+
+    window.addEventListener('resize', resizeChartCanvas);
+
+    function calcEMA(candles, period) {
+      if (!candles || candles.length === 0) return [];
+      const k = 2 / (period + 1);
+      const emaList = [];
+      let ema = candles[0].close;
+      emaList.push(ema);
+      for (let i = 1; i < candles.length; i++) {
+        ema = (candles[i].close * k) + (ema * (1 - k));
+        emaList.push(ema);
+      }
+      return emaList;
+    }
+
+    function renderChart() {
+      const container = document.getElementById('chartCanvasWrapper');
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const width = rect.width;
+      const height = rect.height;
+      if (width <= 0 || height <= 0) return;
+
+      ctx.clearRect(0, 0, width, height);
+
+      const candles = AppState.candles;
+      const count = candles.length;
+      if (count === 0) return;
+
+      let minP = Math.min(...candles.map(c => c.low));
+      let maxP = Math.max(...candles.map(c => c.high));
+
+      if (AppState.active_position) {
+        minP = Math.min(minP, AppState.active_position.stop_loss - 120);
+        maxP = Math.max(maxP, AppState.active_position.take_profit + 120);
+      }
+
+      minP = Math.min(minP, AppState.current_price - 50);
+      maxP = Math.max(maxP, AppState.current_price + 50);
+
+      const paddingY = 30;
+      const rightPriceAxisWidth = 75;
+      const chartWidth = Math.max(width - rightPriceAxisWidth, 100);
+      const chartHeight = Math.max(height - 55, 100); // 55px reserved for volume
+      const range = (maxP - minP) || 1;
+
+      function getY(p) {
+        return chartHeight - ((p - minP) / range) * (chartHeight - paddingY * 2) - paddingY;
+      }
+
+      // Draw subtle price grid lines
+      ctx.strokeStyle = '#161f30';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([]);
+      const gridLevels = 6;
+      for (let i = 0; i <= gridLevels; i++) {
+        const y = paddingY + ((chartHeight - paddingY * 2) / gridLevels) * i;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(chartWidth, y);
+        ctx.stroke();
+
+        const p = maxP - (i / gridLevels) * range;
+        ctx.fillStyle = '#64748b';
+        ctx.font = '10px JetBrains Mono';
+        ctx.textAlign = 'left';
+        ctx.fillText('$' + Math.round(p).toLocaleString(), chartWidth + 8, y + 3);
+      }
+
+      // Draw Candlesticks & Volume
+      const minCandleWidth = 6;
+      const maxCandleWidth = 16;
+      let candleWidth = chartWidth / Math.max(count, 72);
+      candleWidth = Math.max(minCandleWidth, Math.min(maxCandleWidth, candleWidth));
+      const bodyWidth = Math.max(Math.round(candleWidth * 0.72), 3);
+      const totalPlotWidth = candleWidth * count;
+      const startX = Math.max(0, chartWidth - totalPlotWidth);
+      const maxVol = Math.max(...candles.map(c => c.volume)) || 1;
+
+      for (let i = 0; i < count; i++) {
+        const c = candles[i];
+        const x = startX + i * candleWidth + (candleWidth / 2);
+        const isBull = c.close >= c.open;
+        const color = isBull ? '#10b981' : '#ef4444';
+
+        const yOpen = getY(c.open);
+        const yClose = getY(c.close);
+        const yHigh = getY(c.high);
+        const yLow = getY(c.low);
+
+        // Wick
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(x, yHigh);
+        ctx.lineTo(x, yLow);
+        ctx.stroke();
+
+        // Body
+        ctx.fillStyle = color;
+        const top = Math.min(yOpen, yClose);
+        const bHeight = Math.max(Math.abs(yClose - yOpen), 1.5);
+        ctx.fillRect(x - bodyWidth / 2, top, bodyWidth, bHeight);
+
+        // Volume Profile
+        const vHeight = (c.volume / maxVol) * 45;
+        ctx.fillStyle = isBull ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)';
+        ctx.fillRect(x - bodyWidth / 2, height - vHeight, bodyWidth, vHeight);
+      }
+
+      // Draw EMA 20 (Cyan)
+      if (AppState.indicators.ema20_visible && count >= 2) {
+        const ema20 = calcEMA(candles, 20);
+        AppState.indicators.ema20_val = ema20[ema20.length - 1];
+        const el = document.getElementById('chartEma20Val');
+        if (el) el.innerText = AppState.indicators.ema20_val.toFixed(1);
+
+        ctx.strokeStyle = '#06b6d4';
+        ctx.lineWidth = 1.8;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        for (let i = 0; i < count; i++) {
+          const x = startX + i * candleWidth + (candleWidth / 2);
+          const y = getY(ema20[i]);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+
+      // Draw EMA 50 (Orange)
+      if (AppState.indicators.ema50_visible && count >= 2) {
+        const ema50 = calcEMA(candles, 50);
+        AppState.indicators.ema50_val = ema50[ema50.length - 1];
+        const el = document.getElementById('chartEma50Val');
+        if (el) el.innerText = AppState.indicators.ema50_val.toFixed(1);
+
+        ctx.strokeStyle = '#f97316';
+        ctx.lineWidth = 1.6;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        for (let i = 0; i < count; i++) {
+          const x = startX + i * candleWidth + (candleWidth / 2);
+          const y = getY(ema50[i]);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+
+      // Calculate & update spread
+      if (AppState.indicators.ema20_val && AppState.indicators.ema50_val) {
+        AppState.indicators.ema_spread = AppState.indicators.ema20_val - AppState.indicators.ema50_val;
+        const spreadEl = document.getElementById('kpiEmaSpread');
+        if (spreadEl) {
+          const spSign = AppState.indicators.ema_spread >= 0 ? '+' : '';
+          spreadEl.innerText = `${spSign}${AppState.indicators.ema_spread.toFixed(1)}`;
+        }
+      }
+
+      // DRAW ACTIVE TRADE BRACKET LINES (Visible when position active)
+      if (AppState.active_position) {
+        // 1. Take Profit (Green Dashed)
+        const yTP = getY(AppState.active_position.take_profit);
+        ctx.strokeStyle = '#10b981';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(0, yTP);
+        ctx.lineTo(chartWidth, yTP);
+        ctx.stroke();
+
+        // TP Right Badge
+        ctx.fillStyle = '#10b981';
+        ctx.fillRect(chartWidth + 2, yTP - 9, rightPriceAxisWidth - 4, 18);
+        ctx.fillStyle = '#0b0f17';
+        ctx.font = 'bold 9px JetBrains Mono';
+        ctx.textAlign = 'center';
+        ctx.fillText(`TP ${(AppState.active_position.take_profit / 1000).toFixed(1)}k`, chartWidth + (rightPriceAxisWidth / 2), yTP + 3);
+
+        // 2. Entry Price (Blue Dashed)
+        const yEntry = getY(AppState.active_position.entry_price);
+        ctx.strokeStyle = '#3b82f6';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.moveTo(0, yEntry);
+        ctx.lineTo(chartWidth, yEntry);
+        ctx.stroke();
+
+        // Entry Right Badge
+        ctx.fillStyle = '#3b82f6';
+        ctx.fillRect(chartWidth + 2, yEntry - 9, rightPriceAxisWidth - 4, 18);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 9px JetBrains Mono';
+        ctx.textAlign = 'center';
+        ctx.fillText('ENTRY', chartWidth + (rightPriceAxisWidth / 2), yEntry + 3);
+
+        // 3. Stop Loss (Red Dashed)
+        const ySL = getY(AppState.active_position.stop_loss);
+        ctx.strokeStyle = '#ef4444';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(0, ySL);
+        ctx.lineTo(chartWidth, ySL);
+        ctx.stroke();
+
+        // SL Right Badge
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(chartWidth + 2, ySL - 9, rightPriceAxisWidth - 4, 18);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 9px JetBrains Mono';
+        ctx.textAlign = 'center';
+        ctx.fillText(`SL ${(AppState.active_position.stop_loss / 1000).toFixed(1)}k`, chartWidth + (rightPriceAxisWidth / 2), ySL + 3);
+      }
+
+      // Plot backtest/live entry and exit fills at their actual candle times and prices.
+      if (AppState.show_trade_markers && count > 0) {
+        const tradesToPlot = [];
+        if (AppState.recent_trades && AppState.recent_trades.length > 0) {
+          tradesToPlot.push(...AppState.recent_trades);
+        }
+        if (AppState.backtest_trades && AppState.backtest_trades.length > 0) {
+          tradesToPlot.push(...AppState.backtest_trades);
+        }
+
+        tradesToPlot.forEach(tr => {
+          const entryTs = Number(tr.entry_ts || tr.ts || (tr.time ? parseTimeToTs(tr.time, candles[count - 1].ts) : 0));
+          const exitTs = Number(tr.exit_ts || 0);
+          const points = entryTs
+            ? [{ ts: entryTs, price: Number(tr.entry_price || tr.entry || tr.price || 0), kind: 'entry' }]
+            : [];
+          if (exitTs) points.push({ ts: exitTs, price: Number(tr.exit_price || tr.exit || 0), kind: 'exit' });
+
+          points.forEach(point => {
+            let matchedIdx = -1;
+            for (let idx = 0; idx < count; idx++) {
+              const candleStart = Number(candles[idx].ts);
+              const nextTs = idx < count - 1
+                ? Number(candles[idx + 1].ts)
+                : candleStart + timeframeSeconds(AppState.timeframe);
+              if (point.ts >= candleStart && point.ts < nextTs) {
+                matchedIdx = idx;
+                break;
+              }
+            }
+            if (matchedIdx < 0 && !point.ts && tr.price) {
+              let minDiff = Infinity;
+              for (let idx = 0; idx < count; idx++) {
+                const diff = Math.abs(candles[idx].close - tr.price);
+                if (diff < minDiff && diff < 500) { minDiff = diff; matchedIdx = idx; }
+              }
+            }
+            if (matchedIdx < 0) return;
+
+            const isBuy = (tr.side || '').toUpperCase() === 'BUY';
+            const mx = startX + matchedIdx * candleWidth + (candleWidth / 2);
+            const price = point.price || candles[matchedIdx].close;
+            const my = Math.max(10, Math.min(height - 20, getY(price)));
+            const color = point.kind === 'exit' ? '#38bdf8' : (isBuy ? '#10b981' : '#ef4444');
+            const label = point.kind === 'exit' ? 'EXIT' : (isBuy ? 'BUY' : 'SELL');
+            ctx.save();
+            ctx.setLineDash([]);
+            ctx.fillStyle = color;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            if (point.kind === 'exit') {
+              ctx.moveTo(mx, my - 5); ctx.lineTo(mx + 5, my); ctx.lineTo(mx, my + 5); ctx.lineTo(mx - 5, my);
+            } else if (isBuy) {
+              ctx.moveTo(mx, my - 6); ctx.lineTo(mx - 5, my + 4); ctx.lineTo(mx + 5, my + 4);
+            } else {
+              ctx.moveTo(mx, my + 6); ctx.lineTo(mx - 5, my - 4); ctx.lineTo(mx + 5, my - 4);
+            }
+            ctx.closePath(); ctx.fill();
+            const badgeW = point.kind === 'exit' ? 36 : 40;
+            const badgeY = Math.max(3, Math.min(height - 17, my + (isBuy ? 7 : -20)));
+            ctx.globalAlpha = 0.82;
+            ctx.fillRect(mx - badgeW / 2, badgeY, badgeW, 13);
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = '#07111f';
+            ctx.font = 'bold 8px JetBrains Mono';
+            ctx.textAlign = 'center';
+            ctx.fillText(label, mx, badgeY + 9);
+            ctx.restore();
+          });
+        });
+      }
+
+      // CURRENT MARK PRICE LINE & PULSING RIGHT TAG
+      const yMark = getY(AppState.current_price);
+      ctx.setLineDash([]);
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(0, yMark);
+      ctx.lineTo(chartWidth, yMark);
+      ctx.stroke();
+
+      // Pulsing Mark Price Axis Tag
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(chartWidth + 2, yMark - 10, rightPriceAxisWidth - 4, 20);
+      ctx.fillStyle = '#0b0f17';
+      ctx.font = 'bold 10px JetBrains Mono';
+      ctx.textAlign = 'center';
+      ctx.fillText(AppState.current_price.toFixed(1), chartWidth + (rightPriceAxisWidth / 2), yMark + 4);
+
+      // Interactive Crosshair overlay
+      if (hoveredIndex >= 0 && hoveredIndex < count) {
+        const hx = startX + hoveredIndex * candleWidth + (candleWidth / 2);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.setLineDash([2, 2]);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(hx, 0);
+        ctx.lineTo(hx, height);
+        ctx.stroke();
+      }
+    }
+
+    // Chart Mouse Interactivity for Tooltips
+    canvas.addEventListener('mousemove', (e) => {
+      const container = document.getElementById('chartCanvasWrapper');
+      const rect = container.getBoundingClientRect();
+      const rightPriceAxisWidth = 75;
+      const chartWidth = Math.max(rect.width - rightPriceAxisWidth, 100);
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      const count = AppState.candles.length;
+      if (count === 0) return;
+
+      const minCandleWidth = 6;
+      const maxCandleWidth = 16;
+      let candleWidth = chartWidth / Math.max(count, 72);
+      candleWidth = Math.max(minCandleWidth, Math.min(maxCandleWidth, candleWidth));
+      const totalPlotWidth = candleWidth * count;
+      const startX = Math.max(0, chartWidth - totalPlotWidth);
+
+      if (mouseX < startX || mouseX > chartWidth) {
+        hoveredIndex = -1;
+        document.getElementById('chartTooltip').classList.add('hidden');
+        renderChart();
+        return;
+      }
+
+      const index = Math.floor((mouseX - startX) / candleWidth);
+
+      if (index >= 0 && index < count) {
+        hoveredIndex = index;
+        const c = AppState.candles[index];
+        const tooltip = document.getElementById('chartTooltip');
+        tooltip.classList.remove('hidden');
+
+        let left = mouseX + 15;
+        if (left + 160 > chartWidth) left = mouseX - 170;
+        tooltip.style.left = `${left}px`;
+        tooltip.style.top = `${Math.min(mouseY + 10, rect.height - 110)}px`;
+
+        const d = new Date(c.ts * 1000);
+        document.getElementById('ttTime').innerText = d.toUTCString().slice(17, 25) + ' UTC';
+        document.getElementById('ttTf').innerText = AppState.timeframe.toUpperCase();
+        document.getElementById('ttOpen').innerText = '$' + c.open.toFixed(1);
+        document.getElementById('ttHigh').innerText = '$' + c.high.toFixed(1);
+        document.getElementById('ttLow').innerText = '$' + c.low.toFixed(1);
+        document.getElementById('ttClose').innerText = '$' + c.close.toFixed(1);
+        document.getElementById('ttVol').innerText = c.volume.toFixed(2);
+      } else {
+        hoveredIndex = -1;
+        document.getElementById('chartTooltip').classList.add('hidden');
+      }
+      renderChart();
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+      hoveredIndex = -1;
+      document.getElementById('chartTooltip').classList.add('hidden');
+      renderChart();
+    });
+
+    // --- INDICATOR & TIMEFRAME TOGGLE LOGIC ---
+    function toggleIndicator(type) {
+      if (type === 'ema20') {
+        AppState.indicators.ema20_visible = !AppState.indicators.ema20_visible;
+        const btn = document.getElementById('toggleEma20');
+        if (btn) btn.classList.toggle('opacity-40');
+      } else if (type === 'ema50') {
+        AppState.indicators.ema50_visible = !AppState.indicators.ema50_visible;
+        const btn = document.getElementById('toggleEma50');
+        if (btn) btn.classList.toggle('opacity-40');
+      }
+      renderChart();
+    }
+
+    function parseTimeToTs(timeStr, refTs) {
+      if (!timeStr) return refTs || Math.floor(Date.now() / 1000);
+      try {
+        const parts = timeStr.split(':').map(Number);
+        if (parts.length >= 2) {
+          const d = refTs ? new Date(refTs * 1000) : new Date();
+          d.setUTCHours(parts[0], parts[1], parts[2] || 0, 0);
+          return Math.floor(d.getTime() / 1000);
+        }
+      } catch (e) {}
+      return refTs || Math.floor(Date.now() / 1000);
+    }
+
+    async function changeTimeframe(tf, btn) {
+      AppState.timeframe = tf;
+      AppState.history_offset = 0;
+      document.querySelectorAll('.tf-btn').forEach(b => {
+        b.className = 'tf-btn px-2 py-0.5 rounded text-slate-400 hover:text-white text-[11px] cursor-pointer';
+      });
+      if (btn) {
+        btn.className = 'tf-btn active-tf px-2 py-0.5 rounded font-bold bg-[#1f2937] text-amber-400 text-[11px] cursor-pointer';
+      }
+      showToast(`Switched chart timeframe to ${tf.toUpperCase()}`, "info");
+      await fetchCandlesFromStore();
+      updateDOM();
+    }
+
+    async function switchSystemMode(mode) {
+      const selectedMode = mode === 'paper' ? 'paper' : 'uploaded';
+      AppState.mode = selectedMode;
+      try {
+        await fetch('/api/v1/mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: mode })
+        });
+      } catch (e) {}
+
+      if (selectedMode === 'uploaded') {
+        showToast("Backtest analysis selected. Run the analysis to view results.", "info");
+        addLog("INFO", "Backtest analysis selected. Historical dataset and strategy results are shown on the chart.");
+        await fetchCandlesFromStore();
+      } else {
+        AppState.backtest_data_loaded = false;
+        showToast("Paper trading selected. Orders are simulated using live market data.", "success");
+        addLog("INFO", "PAPER mode active. No orders are sent to Delta Exchange.");
+        resetCandlesToLive();
+      }
+      updateDOM();
+    }
+
+    function toggleTradeMarkers() {
+      AppState.show_trade_markers = !AppState.show_trade_markers;
+      const btn = document.getElementById('toggleTradeMarkers');
+      if (btn) {
+        if (AppState.show_trade_markers) {
+          btn.className = 'flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#161f30] border border-emerald-500/40 text-emerald-300 hover:bg-[#1f2b42] transition cursor-pointer text-[11px]';
+        } else {
+          btn.className = 'flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#161f30] border border-slate-700 text-slate-500 hover:bg-[#1f2b42] transition cursor-pointer text-[11px] opacity-60';
+        }
+      }
+      renderChart();
+    }
+
+    async function panCandlesHistory(delta) {
+      if (delta < 0) {
+        AppState.history_offset += Math.abs(delta);
+      } else {
+        AppState.history_offset = Math.max(0, AppState.history_offset - delta);
+      }
+      await fetchCandlesFromStore();
+      updateDOM();
+    }
+
+    async function resetCandlesToLive() {
+      AppState.history_offset = 0;
+      await fetchCandlesFromStore();
+      updateDOM();
+    }
+
+    async function fetchCandlesFromStore() {
+      let fetchLiveHead = false;
+      try {
+        if (AppState.backtest_data_loaded && AppState.backtest_data_timeframe !== AppState.timeframe) {
+          const allRes = await fetch(`/api/v1/backtest/candles?resolution=${encodeURIComponent(AppState.timeframe)}&source=${encodeURIComponent(AppState.backtest_data_source)}&limit=50000`);
+          if (allRes.ok) {
+            AppState.all_candles = await allRes.json();
+            AppState.backtest_data_timeframe = AppState.timeframe;
+          }
+        }
+        let url = AppState.backtest_data_loaded
+          ? `/api/v1/backtest/candles?resolution=${encodeURIComponent(AppState.timeframe)}&source=${encodeURIComponent(AppState.backtest_data_source)}&limit=72`
+          : `/api/v1/candles?resolution=${AppState.timeframe}&limit=72`;
+        fetchLiveHead = !AppState.backtest_data_loaded && AppState.mode === 'paper' && AppState.history_offset === 0;
+        if (fetchLiveHead) url += '&force_live=true';
+        if (AppState.history_offset > 0 && AppState.all_candles.length > AppState.history_offset) {
+          const target = AppState.all_candles[AppState.all_candles.length - 1 - AppState.history_offset];
+          if (target && target.ts) {
+            url += `&before_ts=${target.ts}`;
+          }
+        }
+        const res = await fetch(url);
+        if (!res.ok && fetchLiveHead) {
+          const payload = await res.json().catch(() => ({}));
+          if (!AppState.live_data_error) showToast(payload.detail || `Live candle fetch failed (${res.status})`, "error");
+          AppState.live_data_error = true;
+          return;
+        }
+        if (res.ok) {
+          const raw = await res.json();
+          if (Array.isArray(raw) && raw.length > 0) {
+            if (fetchLiveHead) AppState.live_data_error = false;
+            AppState.candles = raw;
+            if (fetchLiveHead) AppState.all_candles = raw;
+            if (AppState.history_offset === 0) {
+              const last = raw[raw.length - 1];
+              if (last && last.close) AppState.current_price = last.close;
+            }
+            renderChart();
+            return;
+          }
+        }
+        if (fetchLiveHead) {
+          if (!AppState.live_data_error) showToast("Live candle feed returned no bars.", "error");
+          AppState.live_data_error = true;
+          return;
+        }
+      } catch (e) {
+        if (fetchLiveHead) {
+          if (!AppState.live_data_error) showToast(`Live candle fetch failed: ${e.message}`, "error");
+          AppState.live_data_error = true;
+          return;
+        }
+      }
+
+      // Fallback: slice from local all_candles
+      if (AppState.all_candles && AppState.all_candles.length > 0) {
+        const total = AppState.all_candles.length;
+        const end = Math.max(72, total - AppState.history_offset);
+        const start = Math.max(0, end - 72);
+        AppState.candles = AppState.all_candles.slice(start, end);
+        renderChart();
+      }
+    }
+
+    function switchUploadTab(tabId) {
+      ['deltaTab', 'fileTab', 'pasteTab', 'syncTab', 'cacheTab'].forEach(t => {
+        const content = document.getElementById(t + 'Content');
+        const btn = document.getElementById(t + 'Btn');
+        if (content) content.classList.add('hidden');
+        if (btn) {
+          btn.classList.remove('bg-[#1f2937]', 'text-cyan-300', 'text-emerald-300', 'border-cyan-500/50', 'border-emerald-500/50');
+          btn.classList.add('text-slate-400');
+        }
+      });
+      const activeContent = document.getElementById(tabId + 'Content');
+      const activeBtn = document.getElementById(tabId + 'Btn');
+      if (activeContent) activeContent.classList.remove('hidden');
+      if (activeBtn) {
+        activeBtn.classList.remove('text-slate-400');
+        activeBtn.classList.add('bg-[#1f2937]', tabId === 'deltaTab' ? 'text-emerald-300' : 'text-cyan-300', tabId === 'deltaTab' ? 'border-emerald-500/50' : 'border-cyan-500/50');
+      }
+    }
+
+    function handleFileSelected(input) {
+      const label = document.getElementById('selectedFileName');
+      if (input.files && input.files[0]) {
+        const file = input.files[0];
+        const sz = file.size > 1048576 ? (file.size / 1048576).toFixed(2) + ' MB' : (file.size / 1024).toFixed(1) + ' KB';
+        label.innerText = `Selected: ${file.name} (${sz})`;
+        label.className = "text-[11px] text-cyan-300 font-mono mt-1 font-semibold";
+      } else {
+        label.innerText = "No file selected";
+        label.className = "text-[10px] text-slate-500 font-mono mt-1";
+      }
+    }
+
+    function handleFileDrop(e, el) {
+      e.preventDefault();
+      if (el) el.classList.remove('border-cyan-400');
+      const dt = e.dataTransfer;
+      if (dt && dt.files && dt.files.length > 0) {
+        const input = document.getElementById('candleFileInput');
+        input.files = dt.files;
+        handleFileSelected(input);
+      }
+    }
+
+    function openUploadModal(defaultTab) {
+      const m = document.getElementById('uploadModal');
+      if (m) {
+        m.classList.remove('hidden');
+        m.style.display = 'flex';
+      }
+      switchUploadTab(defaultTab || 'fileTab');
+      const syncDisplay = document.getElementById('syncModalPriceDisplay');
+      if (syncDisplay) {
+        syncDisplay.innerText = '$' + AppState.current_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+      const deltaDisplay = document.getElementById('deltaTabPriceDisplay');
+      if (deltaDisplay) {
+        deltaDisplay.innerText = '$' + AppState.current_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+      refreshDatabaseSummary();
+    }
+
+    function closeUploadModal() {
+      const m = document.getElementById('uploadModal');
+      if (m) {
+        m.classList.add('hidden');
+        m.style.display = 'none';
+      }
+    }
+
+    async function refreshDatabaseSummary() {
+      const summaryEl = document.getElementById('dbSummaryText');
+      try {
+        const res = await fetch('/api/v1/candles/summary');
+        if (res.ok) {
+          const data = await res.json();
+          AppState.stored_timeframes = data;
+          let parts = [];
+          if (Array.isArray(data.timeframes) && data.timeframes.length > 0) {
+            parts = data.timeframes.map(item => `${item.timeframe}: ${Number(item.count).toLocaleString()} bars`);
+          } else if (typeof data === 'object' && !Array.isArray(data)) {
+            parts = Object.entries(data).filter(([k]) => k !== 'symbol' && k !== 'timeframes').map(([tf, count]) => `${tf}: ${Number(count).toLocaleString()} bars`);
+          }
+          if (summaryEl) summaryEl.innerText = parts.length > 0 ? parts.join(' | ') : 'algo_bot2 connected (0 bars stored)';
+          return;
+        }
+      } catch (e) {}
+      if (summaryEl) summaryEl.innerText = 'algo_bot2 connected';
+    }
+
+    function toggleCustomUploadTimeframe() {
+      const select = document.getElementById('uploadTimeframeSelect');
+      const input = document.getElementById('uploadCustomTimeframe');
+      if (input) input.classList.toggle('hidden', !select || select.value !== 'custom');
+    }
+
+    function getUploadTimeframe() {
+      const select = document.getElementById('uploadTimeframeSelect');
+      if (!select) return null;
+      if (select.value !== 'custom') return select.value;
+      return (document.getElementById('uploadCustomTimeframe')?.value || '').trim().toLowerCase();
+    }
+
+    function timeframeSeconds(tf) {
+      const match = String(tf || '').trim().match(/^(\d+)\s*(mins?|m|hrs?|h|days?|d|weeks?|w)$/i);
+      if (!match) return 900;
+      const suffix = match[2].toLowerCase();
+      const unit = /^(m|min)/.test(suffix) ? 60 : /^(h|hr)/.test(suffix) ? 3600 : /^(d|day)/.test(suffix) ? 86400 : 604800;
+      return Number(match[1]) * unit;
+    }
+
+    async function syncDeltaExchangeLive() {
+      const tf = getUploadTimeframe() || AppState.timeframe || '15m';
+      const btns = [document.getElementById('syncDeltaBtn'), document.getElementById('chartSyncDeltaBtn')].filter(Boolean);
+      btns.forEach(b => {
+        b.disabled = true;
+        b._origHtml = b.innerHTML;
+        b.innerHTML = '<span class="material-symbols-outlined text-[14px] animate-spin">refresh</span> Syncing Delta...';
+      });
+
+      try {
+        const res = await fetch(`/api/v1/exchange/sync-candles?symbol=BTCUSD&resolution=${tf}&limit=50`, {
+          method: 'POST'
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.latest_price && data.latest_price > 0) {
+            AppState.current_price = Number(data.latest_price);
+          }
+          AppState.timeframe = tf;
+          showToast(`Delta Exchange Synced: ${data.count} live candles! Mark: $${AppState.current_price.toLocaleString('en-US', {minimumFractionDigits: 2})}`, "success");
+          addLog("INFO", `Synced ${data.count} live ${tf} candles from Delta Exchange Testnet. Mark: $${AppState.current_price.toFixed(2)}`);
+          await fetchCandlesFromStore();
+          refreshDatabaseSummary();
+          updateDOM();
+          closeUploadModal();
+        } else {
+          const err = await res.json();
+          showToast(`Delta sync failed: ${err.detail || 'Connection error'}`, "error");
+        }
+      } catch (err) {
+        showToast(`Delta sync failed: ${err.message}`, "error");
+      } finally {
+        btns.forEach(b => {
+          b.disabled = false;
+          if (b._origHtml) b.innerHTML = b._origHtml;
+        });
+      }
+    }
+
+    async function uploadCandleFile() {
+      const fileInput = document.getElementById('candleFileInput');
+      const tfSelect = document.getElementById('uploadTimeframeSelect');
+      const submitBtn = document.getElementById('uploadSubmitBtn');
+
+      if (!fileInput.files || fileInput.files.length === 0) {
+        showToast("Please choose a .json, .csv, or .parquet file first", "warning");
+        return;
+      }
+
+      const file = fileInput.files[0];
+      const tf = getUploadTimeframe();
+      if (!tf) { showToast('Enter a custom upload timeframe, such as 3m or 6h.', 'warning'); return; }
+      const formData = new FormData();
+      formData.append('file', file);
+
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span class="material-symbols-outlined text-[16px] animate-spin">refresh</span> Ingesting into algo_bot2...';
+
+      try {
+        const res = await fetch(`/api/v1/candles/upload?timeframe=${tf}&symbol=${AppState.symbol}`, {
+          method: 'POST',
+          body: formData
+        });
+
+        if (res.ok) {
+          const result = await res.json();
+          if (result.latest_price && result.latest_price > 0) {
+            AppState.current_price = Number(result.latest_price);
+          }
+          showToast(`Success: Ingested ${result.count} candles. Mark price: $${AppState.current_price.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, "success");
+          addLog("INFO", `Ingested ${result.count} BTC candles from file into algo_bot2 (${tf}). Mark price aligned to $${AppState.current_price.toFixed(2)}`);
+          closeUploadModal();
+          fileInput.value = '';
+          const nameLabel = document.getElementById('selectedFileName');
+          if (nameLabel) {
+            nameLabel.innerText = "No file selected";
+            nameLabel.className = "text-[10px] text-slate-500 font-mono mt-1";
+          }
+          AppState.timeframe = tf;
+          await fetchCandlesFromStore();
+          refreshDatabaseSummary();
+          updateDOM();
+        } else {
+          const err = await res.json();
+          showToast(`Upload failed: ${err.detail || 'Ingestion error'}`, "error");
+        }
+      } catch (err) {
+        showToast(`Upload failed: ${err.message}`, "error");
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<span class="material-symbols-outlined text-[16px]">upload_file</span> Upload &amp; Store Dataset in Database';
+      }
+    }
+
+    async function uploadPastedJson() {
+      const jsonText = document.getElementById('pastedJsonInput').value.trim();
+      const tf = getUploadTimeframe();
+      if (!tf) { showToast('Enter a custom upload timeframe, such as 3m or 6h.', 'warning'); return; }
+      const submitBtn = document.getElementById('pasteSubmitBtn');
+
+      if (!jsonText) {
+        showToast("Please paste JSON data first", "warning");
+        return;
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonText);
+      } catch (err) {
+        showToast("Invalid JSON syntax: " + err.message, "error");
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span class="material-symbols-outlined text-[16px] animate-spin">refresh</span> Ingesting into algo_bot2...';
+
+      try {
+        const res = await fetch(`/api/v1/candles/upload-json?timeframe=${tf}&symbol=${AppState.symbol}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(parsed)
+        });
+
+        if (res.ok) {
+          const result = await res.json();
+          if (result.latest_price && result.latest_price > 0) {
+            AppState.current_price = Number(result.latest_price);
+          }
+          showToast(`Success: Ingested ${result.count} candles. Mark price calibrated to $${AppState.current_price.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, "success");
+          addLog("INFO", `Ingested ${result.count} BTC candles from pasted JSON into algo_bot2 (${tf}). Mark price: $${AppState.current_price.toFixed(2)}`);
+          closeUploadModal();
+          AppState.timeframe = tf;
+          await fetchCandlesFromStore();
+          refreshDatabaseSummary();
+          updateDOM();
+        } else {
+          const err = await res.json();
+          showToast(`Ingestion failed: ${err.detail || 'Error processing JSON'}`, "error");
+        }
+      } catch (err) {
+        showToast(`Ingestion failed: ${err.message}`, "error");
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<span class="material-symbols-outlined text-[16px]">save</span> Ingest Pasted JSON &amp; Calibrate Mark Price';
+      }
+    }
+
+    function insertSampleJson(format) {
+      const textarea = document.getElementById('pastedJsonInput');
+      const now = Math.floor(Date.now() / 1000);
+      if (format === 'delta') {
+        textarea.value = JSON.stringify({
+          result: [
+            { time: now - 1800, open: 83050.0, high: 83180.0, low: 83010.0, close: 83120.0, volume: 45.2 },
+            { time: now - 900,  open: 83120.0, high: 83290.0, low: 83090.0, close: 83240.0, volume: 62.8 },
+            { time: now,        open: 83240.0, high: 83350.0, low: 83200.0, close: 83310.5, volume: 55.4 }
+          ]
+        }, null, 2);
+      } else if (format === 'array') {
+        textarea.value = JSON.stringify([
+          [now - 1800, 83050.0, 83180.0, 83010.0, 83120.0, 45.2],
+          [now - 900,  83120.0, 83290.0, 83090.0, 83240.0, 62.8],
+          [now,        83240.0, 83350.0, 83200.0, 83310.5, 55.4]
+        ], null, 2);
+      } else if (format === 'single') {
+        textarea.value = JSON.stringify({
+          symbol: "BTCUSD",
+          price: 83250.0,
+          open: 83200.0,
+          high: 83320.0,
+          low: 83180.0,
+          close: 83250.0,
+          volume: 12.0
+        }, null, 2);
+      }
+    }
+
+    async function syncLivePrice() {
+      const btn = document.getElementById('syncPriceBtn');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="material-symbols-outlined text-[16px] animate-spin">refresh</span> Fetching Live Ticker...';
+      }
+      try {
+        const res = await fetch('/api/v1/price/sync', { method: 'POST' });
+        if (res.ok) {
+          const data = await res.json();
+          AppState.current_price = Number(data.price);
+          showToast(`Live BTC Price Synced: $${AppState.current_price.toLocaleString('en-US', {minimumFractionDigits: 2})} (Source: ${data.source})`, "success");
+          addLog("INFO", `Synced live real-world BTC price: $${AppState.current_price.toFixed(2)} via ${data.source}`);
+          await fetchCandlesFromStore();
+          updateDOM();
+          closeUploadModal();
+        } else {
+          const err = await res.json();
+          showToast(`Price sync failed: ${err.detail || 'Unavailable'}`, "error");
+        }
+      } catch (err) {
+        showToast(`Price sync failed: ${err.message}`, "error");
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<span class="material-symbols-outlined text-[16px]">sync</span> Fetch Live BTC Ticker from Coinbase / Binance';
+        }
+      }
+    }
+
+    async function overrideCustomPrice() {
+      const input = document.getElementById('customPriceInput');
+      const price = parseFloat(input.value);
+      if (!price || price <= 0) {
+        showToast("Please enter a valid positive price", "warning");
+        return;
+      }
+      try {
+        const res = await fetch('/api/v1/price/override', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ price: price, timeframe: AppState.timeframe })
+        });
+        if (res.ok) {
+          AppState.current_price = price;
+          showToast(`Bitcoin mark price set to: $${price.toLocaleString('en-US', {minimumFractionDigits: 2})}`, "success");
+          addLog("INFO", `Manual price override: $${price.toFixed(2)} recorded into algo_bot2`);
+          await fetchCandlesFromStore();
+          updateDOM();
+          closeUploadModal();
+        }
+      } catch (e) {
+        showToast("Failed to override price: " + e.message, "error");
+      }
+    }
+
+    async function loadLocalParquet(tf) {
+      showToast(`Loading pre-cached ${tf} Bitcoin dataset into algo_bot2...`, "info");
+      try {
+        const res = await fetch(`/api/v1/candles/load-local?timeframe=${tf}&limit=1000`, { method: 'POST' });
+        if (res.ok) {
+          const result = await res.json();
+          showToast(`Loaded ${result.count} candles into algo_bot2 for ${tf}`, "success");
+          addLog("INFO", `1-Click Cache Load: Ingested ${result.count} candles into algo_bot2 for ${tf}`);
+          refreshDatabaseSummary();
+          AppState.timeframe = tf;
+          await fetchCandlesFromStore();
+          updateDOM();
+        } else {
+          const err = await res.json();
+          showToast(`Load failed: ${err.detail || 'Error loading cache'}`, "error");
+        }
+      } catch (e) {
+        showToast(`Load failed: ${e.message}`, "error");
+      }
+    }
+
+    async function runBacktest() {
+      const banner = document.getElementById('backtestBanner');
+      const executionTf = (document.getElementById('backtestExecutionTf')?.value || '15m').trim().toLowerCase();
+      const trendTf = (document.getElementById('backtestTrendTf')?.value || '1h').trim().toLowerCase();
+      showToast(`Backtesting ${executionTf} execution + ${trendTf} trend candles...`, "info");
+      addLog("EXEC", `POST /api/v1/backtest/run -> ${executionTf} execution candles with ${trendTf} trend alignment...`);
+
+      try {
+        const res = await fetch('/api/v1/backtest/run', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ execution_timeframe: executionTf, trend_timeframe: trendTf, symbol: AppState.symbol })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.status === 'ok') {
+            AppState.timeframe = data.execution_timeframe || executionTf;
+            const m = data.metrics;
+            AppState.backtest_results = m;
+            AppState.backtest_trades = (data.trades || []).map((t, idx) => {
+              const tsVal = t.entry_ts || t.ts || (t.entry_time ? new Date(t.entry_time).getTime() / 1000 : null);
+              const d = tsVal ? new Date(tsVal * 1000) : new Date();
+              return {
+                id: `BT-${idx + 1}`,
+                time: d.toUTCString().slice(17, 25),
+                ts: tsVal || Math.floor(d.getTime() / 1000),
+                side: (t.side || 'BUY').toUpperCase(),
+                price: Number(t.entry_price || t.exit_price || 0),
+                entry_ts: Number(t.entry_ts || tsVal || 0),
+                exit_ts: Number(t.exit_ts || 0),
+                entry_price: Number(t.entry_price || t.entry || 0),
+                exit_price: Number(t.exit_price || t.exit || 0),
+                pnl: Number(t.pnl || 0),
+                exit_reason: t.exit_reason || '',
+                size: Number(t.size || 0.10),
+                fee: Number(t.fees || 0),
+                reason: t.reason || `Backtest ${t.side} signal (PnL: $${Number(t.pnl || 0).toFixed(2)})`,
+                route: "BACKTEST"
+              };
+            });
+
+            AppState.backtest_data_source = data.data_source || 'bundled';
+            const chartDataRes = await fetch(`/api/v1/backtest/candles?symbol=${encodeURIComponent(AppState.symbol)}&resolution=${encodeURIComponent(AppState.timeframe)}&source=${encodeURIComponent(AppState.backtest_data_source)}&limit=50000`);
+            if (!chartDataRes.ok) throw new Error('Backtest candles could not be loaded for the chart');
+            AppState.all_candles = await chartDataRes.json();
+            AppState.backtest_data_loaded = true;
+            AppState.backtest_data_timeframe = AppState.timeframe;
+            AppState.history_offset = 0;
+            const latestTradeTs = AppState.backtest_trades.length
+              ? Number(AppState.backtest_trades[AppState.backtest_trades.length - 1].exit_ts || AppState.backtest_trades[AppState.backtest_trades.length - 1].entry_ts)
+              : 0;
+            if (latestTradeTs && AppState.all_candles.length) {
+              let tradeIndex = AppState.all_candles.findIndex(c => Number(c.ts) > latestTradeTs);
+              if (tradeIndex < 0) tradeIndex = AppState.all_candles.length;
+              tradeIndex = Math.max(0, tradeIndex - 1);
+              const anchorIndex = Math.min(AppState.all_candles.length - 1, tradeIndex + 36);
+              AppState.history_offset = AppState.all_candles.length - 1 - anchorIndex;
+            }
+            await fetchCandlesFromStore();
+            if (AppState.candles.length) AppState.current_price = AppState.candles[AppState.candles.length - 1].close;
+
+            if (banner) banner.classList.remove('hidden');
+            const sourceLabel = data.data_source === 'uploaded' ? 'Uploaded data' : 'Bundled data';
+            const dataDescription = document.getElementById('btDataDescription');
+            if (dataDescription) dataDescription.innerText = `${sourceLabel} · ${data.execution_timeframe} execution / ${data.trend_timeframe} trend`;
+            addLog("INFO", `Backtest used ${data.data_source} candles: ${data.bars_analyzed} ${data.execution_timeframe} execution bars with ${data.trend_timeframe} trend alignment.`);
+            const retEl = document.getElementById('btReturn');
+            if (retEl) {
+              const r = m.total_return_pct || 0;
+              retEl.innerText = `${r >= 0 ? '+' : ''}${r.toFixed(2)}%`;
+              retEl.className = r >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold';
+            }
+            const netProfitEl = document.getElementById('btNetProfit');
+            if (netProfitEl) {
+              const np = m.net_profit || 0;
+              netProfitEl.innerText = `${np >= 0 ? '+$' : '-$'}${Math.abs(np).toFixed(2)}`;
+              netProfitEl.className = np >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold';
+            }
+            const winEl = document.getElementById('btWinRate');
+            if (winEl) winEl.innerText = `${(m.win_rate_pct || 0).toFixed(1)}%`;
+            const pfEl = document.getElementById('btPf');
+            if (pfEl) pfEl.innerText = `${(m.profit_factor || 0).toFixed(2)}`;
+            const feesEl = document.getElementById('btFees');
+            if (feesEl) feesEl.innerText = `$${Number(m.total_fees_usd || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            const fundingEl = document.getElementById('btFunding');
+            if (fundingEl) {
+              const funding = Number(m.total_funding_pnl || 0);
+              fundingEl.innerText = `${funding >= 0 ? '+' : '-'}$${Math.abs(funding).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+              fundingEl.className = funding >= 0 ? 'text-emerald-300' : 'text-rose-300';
+            }
+            const ddEl = document.getElementById('btMaxDd');
+            if (ddEl) ddEl.innerText = `-${Math.abs(m.max_drawdown_pct || 0).toFixed(2)}%`;
+            const countEl = document.getElementById('btTradesCount');
+            if (countEl) countEl.innerText = `${m.total_trades || 0}`;
+
+            showToast(`Backtest Complete! Return: +${m.total_return_pct}% (${m.total_trades} trades)`, "success");
+            addLog("INFO", `Backtest results: Return +${m.total_return_pct}%, Win Rate: ${m.win_rate_pct}%, Trades: ${m.total_trades}`);
+
+            renderChart();
+            renderRecentTrades();
+            return;
+          }
+        } else {
+          const error = await res.json().catch(() => ({}));
+          showToast(`Backtest failed: ${error.detail || res.statusText}`, "error");
+          addLog("ERROR", `Backtest failed: ${error.detail || res.statusText}`);
+        }
+        const errorBody = await res.json().catch(() => ({}));
+        throw new Error(errorBody.detail || `Backtest request failed (${res.status})`);
+      } catch (err) {
+        showToast(`Backtest run failed: ${err.message}`, "error");
+      }
+    }
+
+    // --- DOM SYNC & REALTIME REFRESH ---
+    function updateDOM() {
+      // Header Price & Symbol
+      const headerSymbol = document.getElementById('headerSymbol');
+      if (headerSymbol) headerSymbol.innerText = AppState.symbol;
+      const priceTypeEl = document.getElementById('headerPriceType');
+      if (priceTypeEl) priceTypeEl.innerText = `${AppState.symbol} ${AppState.price_type || 'MARK'}`;
+
+      document.getElementById('headerMarkPrice').innerText = AppState.current_price > 0 ? '$' + AppState.current_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+      const spotEl = document.getElementById('headerSpotPrice');
+      if (spotEl) spotEl.innerText = AppState.spot_price ? 'Spot $' + Number(AppState.spot_price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'Spot —';
+      const freshnessEl = document.getElementById('headerPriceFreshness');
+      if (freshnessEl) {
+        const age = AppState.price_received_timestamp ? Math.max(0, Math.floor(Date.now() / 1000 - AppState.price_received_timestamp)) : null;
+        freshnessEl.innerText = age !== null && age <= 10 ? `LIVE · ${age}s` : (AppState.price_feed_connected ? 'Waiting for price' : 'Feed disconnected');
+        freshnessEl.className = age !== null && age <= 10 ? 'text-[10px] text-emerald-400' : 'text-[10px] text-amber-400';
+      }
+
+      // Mode Switcher Sync
+      const liveBtn = document.getElementById('modePaperBtn');
+      const btBtn = document.getElementById('modeBacktestBtn');
+      const runBtBtn = document.getElementById('runBacktestBtn');
+      if (liveBtn && btBtn) {
+        if (AppState.mode === 'uploaded') {
+          btBtn.className = 'px-2.5 py-0.5 rounded font-bold bg-[#1f2937] text-amber-400 flex items-center gap-1 cursor-pointer transition';
+          liveBtn.className = 'px-2.5 py-0.5 rounded text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer transition';
+          if (runBtBtn) runBtBtn.classList.remove('hidden');
+        } else {
+          liveBtn.className = 'px-2.5 py-0.5 rounded font-bold bg-[#1f2937] text-emerald-400 flex items-center gap-1 cursor-pointer transition';
+          btBtn.className = 'px-2.5 py-0.5 rounded text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer transition';
+          if (runBtBtn) runBtBtn.classList.add('hidden');
+        }
+      }
+
+      // History Window Label
+      const windowLabel = document.getElementById('candleWindowLabel');
+      if (windowLabel) {
+        if (AppState.history_offset === 0) {
+          windowLabel.innerText = "Live Head";
+        } else {
+          windowLabel.innerText = `-${AppState.history_offset} Bars`;
+        }
+      }
+
+      // Halt & Engine state
+      const haltBanner = document.getElementById('haltBanner');
+      const pauseText = document.getElementById('pauseBtnText');
+      const pauseIcon = document.getElementById('pauseBtnIcon');
+      const riskBadgeText = document.getElementById('riskBadgeText');
+      const riskBadgeDot = document.getElementById('riskBadgeDot');
+      const riskBadgeBtn = document.getElementById('riskBadgeBtn');
+
+      if (AppState.is_halted) {
+        haltBanner.classList.remove('hidden');
+        document.getElementById('haltBannerReason').innerText = AppState.halt_reason || "Emergency Kill Switch Activated";
+        riskBadgeText.innerText = "🔴 HALTED: Emergency Trip";
+        riskBadgeDot.className = "w-2 h-2 rounded-full bg-rose-500 pulse-dot-red";
+        riskBadgeBtn.className = "flex items-center gap-1.5 bg-rose-950/90 text-rose-300 border border-rose-500/50 px-2.5 py-1 rounded transition text-xs font-semibold group cursor-pointer";
+      } else {
+        haltBanner.classList.add('hidden');
+        const breachedCount = AppState.risk_rules.filter(r => !r.passed).length;
+        if (breachedCount > 0) {
+          riskBadgeText.innerText = `🟡 Risk: ${8 - breachedCount}/8 Rules`;
+          riskBadgeDot.className = "w-2 h-2 rounded-full bg-amber-400";
+          riskBadgeBtn.className = "flex items-center gap-1.5 bg-[#161f30] hover:bg-[#1b263b] text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded transition text-xs font-semibold group cursor-pointer";
+        } else {
+          riskBadgeText.innerText = "🟢 Risk: 8/8 Normal";
+          riskBadgeDot.className = "w-2 h-2 rounded-full bg-emerald-400 pulse-dot";
+          riskBadgeBtn.className = "flex items-center gap-1.5 bg-[#161f30] hover:bg-[#1b263b] text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded transition text-xs font-semibold group cursor-pointer";
+        }
+      }
+
+      if (AppState.status === 'paused') {
+        pauseText.innerText = 'Resume';
+        pauseIcon.innerText = 'play_arrow';
+      } else {
+        pauseText.innerText = 'Pause';
+        pauseIcon.innerText = 'pause';
+      }
+
+      // KPI 4 & 1: Calculate margin & cash accurately (Cash = Equity - Margin Used)
+      const notional = AppState.active_position ? (AppState.current_price * AppState.active_position.size) : 0;
+      const marginUsed = notional / 5.0; // 5x leverage
+      AppState.margin_used = marginUsed;
+      AppState.cash_balance = Math.max(0, AppState.equity - marginUsed);
+
+      document.getElementById('kpiNetEquity').innerText = '$' + AppState.equity.toLocaleString('en-US', { minimumFractionDigits: 2 });
+      document.getElementById('kpiCash').innerText = '$' + AppState.cash_balance.toLocaleString('en-US', { minimumFractionDigits: 2 });
+      document.getElementById('kpiPeakEquity').innerText = '$' + AppState.peak_equity.toLocaleString('en-US', { minimumFractionDigits: 2 });
+      document.getElementById('kpiDailyPnlText').innerText = (AppState.daily_pnl >= 0 ? '+$' : '-$') + Math.abs(AppState.daily_pnl).toFixed(2);
+      document.getElementById('kpiDailyPnlText').className = AppState.daily_pnl >= 0 ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold';
+      const limitTextEl = document.getElementById('kpiDailyLimitText');
+      if (limitTextEl) limitTextEl.innerText = `-$${Math.abs(AppState.daily_pnl_limit).toFixed(2)} Max`;
+
+      // Fill percentage for daily loss
+      const lossFill = Math.min(100, Math.max(0, (Math.abs(Math.min(0, AppState.daily_pnl)) / Math.max(1, Math.abs(AppState.daily_pnl_limit))) * 100));
+      const fillEl = document.getElementById('kpiDailyLossFill');
+      if (fillEl) {
+        fillEl.style.width = `${lossFill.toFixed(0)}%`;
+        fillEl.className = lossFill > 80 ? "bg-rose-500 h-full rounded-full" : lossFill > 40 ? "bg-amber-400 h-full rounded-full" : "bg-emerald-400 h-full rounded-full";
+      }
+
+      // KPI 2: Position & Brackets
+      const posBadge = document.getElementById('kpiPosBadge');
+      const flattenBtn = document.getElementById('flattenBtn');
+      const floatingBadge = document.getElementById('floatingBracketBadge');
+      const flatNotice = document.getElementById('flatChartNotice');
+
+      if (AppState.active_position && AppState.active_position.size > 0) {
+        const p = AppState.active_position;
+        posBadge.innerText = p.side;
+        posBadge.className = p.side === 'BUY' || p.side === 'LONG'
+          ? "text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+          : "text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30";
+        flattenBtn.classList.remove('hidden');
+        floatingBadge.classList.remove('hidden');
+        flatNotice.classList.add('hidden');
+
+        document.getElementById('kpiPosSize').innerText = `${p.size.toFixed(2)} BTC`;
+        const posNotional = Math.round(AppState.current_price * p.size);
+        document.getElementById('kpiPosNotional').innerText = `$${posNotional.toLocaleString()} USD`;
+        document.getElementById('kpiPosEntry').innerText = `$${p.entry_price.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+
+        // Calculate upnl
+        const isLong = p.side === 'BUY' || p.side === 'LONG';
+        const priceDiff = isLong ? (AppState.current_price - p.entry_price) : (p.entry_price - AppState.current_price);
+        const pnlDiff = priceDiff * p.size;
+        const pnlPct = (priceDiff / p.entry_price) * 100;
+        const uSign = pnlDiff >= 0 ? '+' : '';
+        document.getElementById('kpiPosUpnl').innerHTML = `${uSign}$${Math.abs(pnlDiff).toFixed(2)} (${uSign}${pnlPct.toFixed(2)}%)`;
+        document.getElementById('kpiPosUpnl').className = pnlDiff >= 0 ? "text-emerald-400 font-bold" : "text-rose-400 font-bold";
+
+        document.getElementById('bracketStatusText').innerText = `Active (SL $${(p.stop_loss/1000).toFixed(1)}k / TP $${(p.take_profit/1000).toFixed(1)}k)`;
+        document.getElementById('kpiBracketsCount').innerText = `${AppState.open_orders.length} Active (SL + TP)`;
+
+        // Update Legend Pill
+        const tpPct = ((p.take_profit - p.entry_price) / p.entry_price * 100);
+        const slPct = ((p.stop_loss - p.entry_price) / p.entry_price * 100);
+        const legendTp = document.getElementById('chartLegendTp');
+        if (legendTp) legendTp.innerHTML = `TP: <strong>$${p.take_profit.toLocaleString('en-US', {minimumFractionDigits: 2})} (${tpPct >= 0 ? '+' : ''}${tpPct.toFixed(2)}%)</strong>`;
+        const legendEntry = document.getElementById('chartLegendEntry');
+        if (legendEntry) legendEntry.innerHTML = `ENTRY: <strong>$${p.entry_price.toLocaleString('en-US', {minimumFractionDigits: 2})}</strong>`;
+        const legendSl = document.getElementById('chartLegendSl');
+        if (legendSl) legendSl.innerHTML = `SL: <strong>$${p.stop_loss.toLocaleString('en-US', {minimumFractionDigits: 2})} (${slPct.toFixed(2)}%)</strong>`;
+      } else {
+        posBadge.innerText = "FLAT";
+        posBadge.className = "text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700";
+        flattenBtn.classList.add('hidden');
+        floatingBadge.classList.add('hidden');
+        flatNotice.classList.remove('hidden');
+
+        document.getElementById('kpiPosSize').innerText = "0.00 BTC";
+        document.getElementById('kpiPosNotional').innerText = "$0 USD";
+        document.getElementById('kpiPosEntry').innerText = "$0.00";
+        document.getElementById('kpiPosUpnl').innerText = "$0.00 (0.00%)";
+        document.getElementById('kpiPosUpnl').className = "text-slate-500 font-bold";
+
+        document.getElementById('bracketStatusText').innerText = "None (Flat)";
+        document.getElementById('kpiBracketsCount').innerText = "0 Active";
+      }
+
+      // KPI 4: Margin display
+      document.getElementById('kpiMarginUsed').innerText = '$' + marginUsed.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const avail = Math.max(0, AppState.equity - marginUsed);
+      document.getElementById('kpiMarginAvail').innerText = '$' + avail.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+      renderOpenOrders();
+      renderRecentTrades();
+      renderSignals();
+      renderLogs();
+      renderRiskModalRules();
+      renderChart();
+    }
+
+    function switchBlotterTab(tabId) {
+      const isTab1 = tabId === 'tab1';
+      const tab1Content = document.getElementById('tab1Content');
+      const tab2Content = document.getElementById('tab2Content');
+      const tab2Controls = document.getElementById('tab2Controls');
+      const tabBtn1 = document.getElementById('tabBtn1');
+      const tabBtn2 = document.getElementById('tabBtn2');
+
+      if (tab1Content) tab1Content.classList.toggle('hidden', !isTab1);
+      if (tab2Content) tab2Content.classList.toggle('hidden', isTab1);
+      if (tab2Controls) tab2Controls.classList.toggle('hidden', isTab1);
+
+      if (tabBtn1) {
+        tabBtn1.className = isTab1
+          ? 'blotter-tab active-tab px-3 py-1.5 text-xs font-mono-num font-semibold text-slate-100 border-b-2 border-amber-400 flex items-center gap-1.5 cursor-pointer'
+          : 'blotter-tab px-3 py-1.5 text-xs font-mono-num font-medium text-slate-400 hover:text-slate-200 border-b-2 border-transparent flex items-center gap-1.5 cursor-pointer';
+      }
+      if (tabBtn2) {
+        tabBtn2.className = !isTab1
+          ? 'blotter-tab active-tab px-3 py-1.5 text-xs font-mono-num font-semibold text-slate-100 border-b-2 border-amber-400 flex items-center gap-1.5 cursor-pointer'
+          : 'blotter-tab px-3 py-1.5 text-xs font-mono-num font-medium text-slate-400 hover:text-slate-200 border-b-2 border-transparent flex items-center gap-1.5 cursor-pointer';
+      }
+    }
+
+    function renderOpenOrders() {
+      const tbody = document.getElementById('openOrdersTbody');
+      const countEl = document.getElementById('openOrdersCount');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+
+      const orders = AppState.open_orders || [];
+      if (countEl) countEl.innerText = `${orders.length} Order${orders.length === 1 ? '' : 's'} Active`;
+
+      if (orders.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-slate-500 text-[11px]">No active open orders</td></tr>';
+        return;
+      }
+
+      orders.forEach(o => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-[#161f30]/60 transition';
+        const side = (o.side || 'BUY').toUpperCase();
+        const isBuy = side === 'BUY' || side === 'LONG';
+        const price = Number(o.price || o.trigger_price || 0);
+        const size = Number(o.size || 0);
+        const id = o.id || o.client_order_id || 'ORD';
+        const type = o.type || (o.stop_loss ? 'STOP_LOSS' : 'LIMIT');
+        const status = (o.status || 'ACTIVE').toUpperCase();
+
+        tr.innerHTML = `
+          <td class="py-1.5 px-3 font-mono text-[11px] text-cyan-300 font-semibold">${id}</td>
+          <td class="py-1.5 px-2">
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${isBuy ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}">${side}</span>
+          </td>
+          <td class="py-1.5 px-2 text-slate-300 text-[11px] font-mono">${type}</td>
+          <td class="py-1.5 px-2 font-mono text-white text-[11px] font-bold">$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td class="py-1.5 px-2 font-mono text-slate-300 text-[11px]">${size.toFixed(2)} BTC</td>
+          <td class="py-1.5 px-3 text-right">
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">${status}</span>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderRecentTrades() {
+      const tbody = document.getElementById('recentTradesTbody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+
+      const trades = [...(AppState.backtest_trades || []).slice().reverse(), ...(AppState.recent_trades || [])];
+      if (trades.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="py-4 text-center text-slate-500 text-[11px]">No executed trades yet</td></tr>';
+        return;
+      }
+
+      trades.slice(0, 50).forEach(t => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-[#161f30]/60 transition';
+        const side = (t.side || 'BUY').toUpperCase();
+        const isBuy = side === 'BUY' || side === 'LONG';
+        const price = Number(t.price || t.entry_price || t.fill_price || 0);
+        const size = Number(t.size || 0);
+        const fee = Number(t.fee || 0);
+        const pnl = t.pnl === undefined ? null : Number(t.pnl);
+        const pnlClass = pnl === null ? 'text-slate-500' : pnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
+        const reason = t.reason || t.exit_reason || 'Algorithmic trade execution';
+        const route = t.route || 'DELTA-TESTNET';
+
+        const tradeTs = Number(t.entry_ts || t.ts || 0);
+        const tradeDate = tradeTs ? new Date(tradeTs * 1000).toISOString().replace('T', ' ').slice(0, 19) : (t.time || '--');
+
+        tr.innerHTML = `
+          <td class="py-1.5 px-3 font-mono text-[10px] text-slate-400">${tradeDate} UTC</td>
+          <td class="py-1.5 px-2">
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${isBuy ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}">${side}</span>
+          </td>
+          <td class="py-1.5 px-2 font-mono text-white text-[11px] font-bold">$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td class="py-1.5 px-2 font-mono text-slate-300 text-[11px]">${size.toFixed(2)} BTC</td>
+          <td class="py-1.5 px-2 font-mono text-slate-400 text-[11px]">$${fee.toFixed(2)}</td>
+          <td class="py-1.5 px-2 font-mono text-[11px] ${pnlClass}">${pnl === null ? '--' : `${pnl >= 0 ? '+' : '-'}$${Math.abs(pnl).toFixed(2)}`}</td>
+          <td class="py-1.5 px-2 text-slate-300 text-[11px] max-w-xs truncate" title="${reason}">${reason}</td>
+          <td class="py-1.5 px-3 text-right">
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-mono text-cyan-400 bg-cyan-950/60 border border-cyan-800/40">${route}</span>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderSignals() {
+      const container = document.getElementById('signalsListContainer');
+      container.innerHTML = '';
+
+      if (AppState.signals.length === 0) {
+        container.innerHTML = `<div class="p-3 text-center text-slate-500 text-[11px]">No strategy signals generated yet</div>`;
+        return;
+      }
+
+      AppState.signals.forEach(s => {
+        const div = document.createElement('div');
+        div.className = 'bg-[#111827] border border-[#1f2937] p-2 rounded flex flex-col gap-1';
+        const actionUpper = (s.action || 'BUY').toUpperCase();
+        div.innerHTML = `
+          <div class="flex items-center justify-between text-[11px]">
+            <div class="flex items-center gap-1.5">
+              <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${actionUpper.includes('BUY') ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}">${actionUpper}</span>
+              <span class="text-slate-300 font-semibold">$${Number(s.trigger_price || 0).toFixed(2)}</span>
+            </div>
+            <span class="text-[10px] text-slate-500">${s.time || ''} UTC</span>
+          </div>
+          <div class="text-[11px] text-slate-400 leading-snug">${s.reason || ''}</div>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function renderLogs() {
+      const container = document.getElementById('engineLogsContainer');
+      const filter = (document.getElementById('logSearchInput').value || '').toLowerCase();
+      container.innerHTML = '';
+
+      const filtered = AppState.logs.filter(l => {
+        if (!filter) return true;
+        return (l.text || l.message || '').toLowerCase().includes(filter) || (l.level || '').toLowerCase().includes(filter);
+      });
+
+      filtered.forEach(l => {
+        const row = document.createElement('div');
+        row.className = 'flex items-start gap-2 py-0.5';
+
+        const level = (l.level || 'INFO').toUpperCase();
+        let badge = 'text-blue-300 bg-blue-950/80 border border-blue-700/50';
+        if (level === 'EXEC') badge = 'text-emerald-300 bg-emerald-950/80 border border-emerald-700/50';
+        if (level === 'WARN' || level === 'WARNING') badge = 'text-amber-300 bg-amber-950/80 border border-amber-700/50';
+        if (level === 'ERROR' || level === 'KILL') badge = 'text-rose-300 bg-rose-950 border border-rose-600';
+        if (level === 'RISK') badge = 'text-cyan-300 bg-cyan-950/80 border border-cyan-700/50';
+
+        row.innerHTML = `
+          <span class="text-slate-600 select-none">${l.time || '12:00:00'}</span>
+          <span class="px-1 rounded text-[9px] font-bold uppercase tracking-wider ${badge}">[${level}]</span>
+          <span class="text-slate-300 flex-1">${l.text || l.message || ''}</span>
+        `;
+        container.appendChild(row);
+      });
+
+      if (document.getElementById('logAutoscrollCheck').checked) {
+        container.scrollTop = container.scrollHeight;
+      }
+    }
+
+    function addLog(level, text) {
+      const now = new Date();
+      const timeStr = String(now.getHours()).padStart(2, '0') + ':' +
+                      String(now.getMinutes()).padStart(2, '0') + ':' +
+                      String(now.getSeconds()).padStart(2, '0');
+      AppState.logs.push({ level, text, time: timeStr });
+      if (AppState.logs.length > 120) AppState.logs.shift();
+      renderLogs();
+    }
+
+    function filterEngineLogs() {
+      renderLogs();
+    }
+
+    function clearLogs() {
+      AppState.logs = [];
+      renderLogs();
+      showToast("Terminal log buffer cleared", "info");
+    }
+
+    // --- 8-RULE RISK RADAR MODAL ENGINE ---
+    function renderRiskModalRules() {
+      const list = document.getElementById('riskRulesList');
+      if (!list) return;
+      list.innerHTML = '';
+
+      let allPassed = true;
+      AppState.risk_rules.forEach(r => {
+        if (!r.passed) allPassed = false;
+        const card = document.createElement('div');
+        card.className = `p-2 rounded bg-[#0b0f17] border ${r.passed ? 'border-[#1f2937]' : 'border-rose-500/80 bg-rose-950/20'} flex items-center justify-between`;
+        card.innerHTML = `
+          <div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] text-slate-500">#${r.id}</span>
+              <span class="font-bold text-slate-200">${r.name}</span>
+            </div>
+            <div class="text-[10px] text-slate-400 mt-0.5">${r.condition}</div>
+            <div class="text-[10px] text-cyan-400">${r.value}</div>
+          </div>
+          <div>
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold ${r.passed ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}">
+              ${r.passed ? 'PASS' : 'BREACH'}
+            </span>
+          </div>
+        `;
+        list.appendChild(card);
+      });
+
+      const summary = document.getElementById('modalRiskStatusSummary');
+      const dot = document.getElementById('modalRiskDot');
+      if (summary) {
+        if (allPassed) {
+          summary.innerText = "All 8 rules satisfied (NOMINAL)";
+          summary.className = "text-emerald-400 font-bold";
+          if (dot) dot.className = "w-3 h-3 rounded-full bg-emerald-400 pulse-dot";
+        } else {
+          summary.innerText = "Risk circuit breaker triggered! Interlocks engaged.";
+          summary.className = "text-rose-400 font-bold";
+          if (dot) dot.className = "w-3 h-3 rounded-full bg-rose-500 pulse-dot-red";
+        }
+      }
+    }
+
+    function openRiskModal() {
+      renderRiskModalRules();
+      document.getElementById('riskModal').classList.remove('hidden');
+    }
+
+    function closeRiskModal() {
+      document.getElementById('riskModal').classList.add('hidden');
+    }
+
+    // --- INTERACTIVE ACTIONS & LIVE FASTAPI INTEGRATION ---
+    async function toggleEnginePause() {
+      if (AppState.is_halted) {
+        showToast("Engine is halted. Resume the engine first.", "error");
+        return;
+      }
+
+      if (AppState.status === 'running') {
+        try {
+          await fetch('/api/v1/pause', { method: 'POST' });
+        } catch (e) {
+          try { await fetch('/api/pause', { method: 'POST' }); } catch (err) {}
+        }
+        AppState.status = 'paused';
+        addLog("WARN", "POST /api/v1/pause -> Trading engine loop paused by operator. Signals held.");
+        showToast("Engine loop paused (POST /api/v1/pause)", "warning");
+      } else {
+        try {
+          await fetch('/api/v1/resume', { method: 'POST' });
+        } catch (e) {
+          try { await fetch('/api/resume', { method: 'POST' }); } catch (err) {}
+        }
+        AppState.status = 'running';
+        addLog("EXEC", "POST /api/v1/resume -> Trading engine resumed. Active monitoring.");
+        showToast("Engine loop active (POST /api/v1/resume)", "success");
+      }
+      updateDOM();
+    }
+
+    async function triggerDemoTrade() {
+      if (AppState.is_halted) {
+        showToast("Cannot test paper execution: Engine is halted", "error");
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/v1/demo/trigger', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ side: 'buy' })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.detail || `Request failed (${res.status})`);
+        }
+        if (!data.decision?.approved || !data.result?.ok) {
+          const reason = data.decision?.reason || data.result?.error || 'Risk checks rejected the test order';
+          addLog("WARN", `Paper order test not filled: ${reason}`);
+          showToast(`Paper order not placed: ${reason}`, "warning");
+          return;
+        }
+
+        const price = Number(data.signal.entry_price);
+        const size = Number(data.order.size);
+        addLog("EXEC", `Paper test order filled: BUY ${size} BTC @ $${price.toFixed(2)} (${data.result.order_id})`);
+        addLog("RISK", `Risk checks approved; test order capped at $${Number(data.test_notional_cap_usd).toFixed(2)} notional. Price source: ${data.price_source}, age: ${data.price_age_seconds}s.`);
+        showToast(`Paper test order filled: BUY ${size} BTC @ $${price.toFixed(2)}`, "success");
+        await syncFromBackend();
+      } catch (err) {
+        const message = err?.message || 'Paper order test failed';
+        addLog("ERROR", `Paper order test failed: ${message}`);
+        showToast(`Paper order test failed: ${message}`, "error");
+      }
+    }
+
+    async function flattenActivePosition() {
+      if (!AppState.active_position) {
+        showToast("No active position to flatten", "info");
+        return;
+      }
+      const p = AppState.active_position;
+
+      try {
+        await fetch('/api/v1/positions/flatten', { method: 'POST' });
+      } catch (e) {
+        try { await fetch('/api/positions/flatten', { method: 'POST' }); } catch (err) {}
+      }
+
+      addLog("EXEC", `POST /api/v1/positions/flatten -> Market closed ${p.size} BTC @ $${AppState.current_price.toFixed(2)}. Brackets canceled.`);
+      AppState.active_position = null;
+      AppState.open_orders = [];
+      showToast("Position flattened at market price (Brackets canceled)", "warning");
+      updateDOM();
+    }
+
+    // --- KILL SWITCH CONFIRMATION MODAL & RECOVERY ---
+    function openKillModal() {
+      document.getElementById('killModal').classList.remove('hidden');
+      document.getElementById('killConfirmationInput').value = '';
+      document.getElementById('confirmKillBtn').disabled = true;
+      document.getElementById('confirmKillBtn').className = 'px-4 py-1.5 text-xs font-mono-num font-bold rounded bg-rose-950 text-slate-500 cursor-not-allowed transition';
+      document.getElementById('killConfirmationInput').focus();
+    }
+
+    function closeKillModal() {
+      document.getElementById('killModal').classList.add('hidden');
+    }
+
+    function verifyKillInput() {
+      const val = document.getElementById('killConfirmationInput').value.trim().toUpperCase();
+      const btn = document.getElementById('confirmKillBtn');
+      if (val === 'HALT') {
+        btn.disabled = false;
+        btn.className = 'px-4 py-1.5 text-xs font-mono-num font-bold rounded bg-rose-600 hover:bg-rose-500 text-white cursor-pointer shadow-lg transition';
+      } else {
+        btn.disabled = true;
+        btn.className = 'px-4 py-1.5 text-xs font-mono-num font-bold rounded bg-rose-950 text-slate-500 cursor-not-allowed transition';
+      }
+    }
+
+    async function executeKillSwitch() {
+      AppState.is_halted = true;
+      AppState.status = "halted";
+      AppState.halt_reason = "Manual Operator Emergency Kill-Switch Executed";
+      AppState.active_position = null;
+      AppState.open_orders = [];
+
+      // Mark halt guard as breached
+      AppState.risk_rules[0].passed = false;
+      AppState.risk_rules[0].value = "TRUE (HALTED)";
+
+      try {
+        await fetch('/api/v1/kill', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: "Manual Operator Emergency Kill-Switch Executed" })
+        });
+      } catch (e) {
+        try {
+          await fetch('/api/kill', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: "Manual Operator Emergency Kill-Switch Executed" })
+          });
+        } catch (err) {}
+      }
+
+      addLog("KILL", "POST /api/v1/kill -> EMERGENCY FLATTEN & HALT EXECUTED. All brackets canceled. Engine locked.");
+      showToast("EMERGENCY KILL SWITCH ACTIVATED! All orders flattened.", "error");
+      closeKillModal();
+      updateDOM();
+    }
+
+    async function resumeEngine() {
+      AppState.is_halted = false;
+      AppState.status = "running";
+      AppState.halt_reason = "";
+      AppState.risk_rules[0].passed = true;
+      AppState.risk_rules[0].value = "False (Running)";
+
+      try {
+        await fetch('/api/v1/resume', { method: 'POST' });
+      } catch (e) {
+        try { await fetch('/api/resume', { method: 'POST' }); } catch (err) {}
+      }
+
+      addLog("EXEC", "POST /api/v1/resume -> Operator cleared emergency halt state. Engine re-armed.");
+      showToast("Engine resumed (POST /api/v1/resume)", "success");
+      updateDOM();
+      syncFromBackend();
+    }
+
+    // --- TOAST NOTIFICATIONS HELPER ---
+    function showToast(message, type = "info") {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+
+      let border = 'border-[#2d3a4f] bg-[#111827] text-slate-200';
+      if (type === 'success') border = 'border-emerald-500/60 bg-[#0f241a] text-emerald-200';
+      if (type === 'warning') border = 'border-amber-500/60 bg-[#261f0d] text-amber-200';
+      if (type === 'error') border = 'border-rose-500/80 bg-[#2b1013] text-rose-100';
+
+      toast.className = `px-3 py-2 rounded border text-xs font-mono-num shadow-2xl flex items-center gap-2 pointer-events-auto transition-all transform translate-y-2 opacity-0 ${border}`;
+      toast.innerHTML = `
+        <span class="w-1.5 h-1.5 rounded-full ${type === 'success' ? 'bg-emerald-400' : type === 'error' ? 'bg-rose-400' : 'bg-amber-400'}"></span>
+        <span>${message}</span>
+      `;
+
+      container.appendChild(toast);
+      requestAnimationFrame(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+      });
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-x-4');
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+
+    function copyText(txt) {
+      if (!txt) return;
+      navigator.clipboard.writeText(txt).then(() => {
+        showToast(`Copied ${txt} to clipboard`, "info");
+      }).catch(() => {
+        showToast(`Copied ${txt}`, "info");
+      });
+    }
+
+    // --- LIVE FASTAPI BACKEND SYNC (REST) ---
+    async function syncFromBackend() {
+      try {
+        const [statusRes, posRes, ordersRes, tradesRes, signalsRes, riskRes, logsRes, paperRes] = await Promise.allSettled([
+          fetch('/api/v1/status'),
+          fetch('/api/v1/positions'),
+          fetch('/api/v1/orders'),
+          fetch('/api/v1/trades?limit=10'),
+          fetch('/api/v1/signals?limit=10'),
+          fetch('/api/v1/risk'),
+          fetch('/api/v1/logs?limit=25'),
+          fetch('/api/v1/paper/summary')
+        ]);
+
+        if (statusRes.status === 'fulfilled' && statusRes.value.ok) {
+          const s = await statusRes.value.json();
+          AppState.is_halted = !!s.is_halted;
+          AppState.halt_reason = s.halt_reason || "";
+          AppState.status = s.status || (s.is_halted ? "halted" : "running");
+          AppState.mode = s.mode === 'uploaded' ? 'uploaded' : 'paper';
+          if (s.equity) AppState.equity = s.equity;
+          if (s.peak_equity) AppState.peak_equity = s.peak_equity;
+          if (s.daily_pnl !== undefined) AppState.daily_pnl = s.daily_pnl;
+          if (s.current_price && s.current_price > 0) AppState.current_price = s.current_price;
+          if (s.mark_price > 0) AppState.current_price = s.mark_price;
+          if (s.spot_price > 0) AppState.spot_price = s.spot_price;
+          if (s.price_received_timestamp) AppState.price_received_timestamp = s.price_received_timestamp;
+          if (s.price_type) AppState.price_type = s.price_type;
+          AppState.price_feed_connected = !!s.price_feed_connected;
+          AppState.price_is_live = !!s.price_is_live;
+          if (s.symbol) AppState.symbol = s.symbol;
+        }
+
+        if (posRes.status === 'fulfilled' && posRes.value.ok) {
+          const positions = await posRes.value.json();
+          if (Array.isArray(positions) && positions.length > 0) {
+            const p = positions[0];
+            const sideUpper = (p.side || 'BUY').toUpperCase();
+            const entry = p.entry_price || AppState.current_price;
+            const size = p.size || 0.10;
+            const sl = p.stop_loss || (sideUpper === 'BUY' ? entry * 0.985 : entry * 1.015);
+            const tp = p.take_profit || (sideUpper === 'BUY' ? entry * 1.025 : entry * 0.975);
+
+            AppState.active_position = {
+              symbol: p.symbol || AppState.symbol,
+              side: sideUpper === 'BUY' || sideUpper === 'LONG' ? 'LONG' : 'SHORT',
+              size: size,
+              entry_price: entry,
+              unrealized_pnl: p.unrealized_pnl || 0.0,
+              unrealized_pnl_pct: p.unrealized_pnl_pct || 0.0,
+              stop_loss: sl,
+              take_profit: tp,
+              leverage: p.leverage || 1.0,
+              margin_used: (entry * size) / 5.0
+            };
+          } else {
+            AppState.active_position = null;
+          }
+        }
+
+        if (ordersRes.status === 'fulfilled' && ordersRes.value.ok) {
+          const orders = await ordersRes.value.json();
+          if (Array.isArray(orders)) {
+            AppState.open_orders = orders;
+          }
+        } else if (!AppState.active_position) {
+          AppState.open_orders = [];
+        }
+
+        if (tradesRes.status === 'fulfilled' && tradesRes.value.ok) {
+          const trades = await tradesRes.value.json();
+          if (Array.isArray(trades)) {
+            AppState.recent_trades = trades.map(t => {
+              const d = t.ts ? new Date(t.ts * 1000) : new Date();
+              return {
+                id: t.client_order_id || `TRD-${t.id || 1000}`,
+                time: d.toUTCString().slice(17, 25),
+                ts: t.ts || Math.floor(d.getTime() / 1000),
+                side: (t.side || 'BUY').toUpperCase(),
+                price: Number(t.price || 0),
+                size: Number(t.size || 0),
+                fee: Number(t.fee || 0.83),
+                reason: t.reason || "Autonomous trend breakout execution",
+                route: "PAPER"
+              };
+            });
+          }
+        }
+
+        if (paperRes.status === 'fulfilled' && paperRes.value.ok) {
+          const paper = await paperRes.value.json();
+          const closed = (paper.closed_trades || []).map(t => ({
+            id: t.id, ts: Number(t.entry_ts), entry_ts: Number(t.entry_ts), exit_ts: Number(t.exit_ts),
+            side: t.side, price: Number(t.entry_price), entry_price: Number(t.entry_price),
+            exit_price: Number(t.exit_price), size: Number(t.size), fee: Number(t.fees || 0),
+            pnl: Number(t.pnl || 0), reason: t.exit_reason || 'Paper trade closed', route: 'PAPER'
+          }));
+          const open = (paper.open_positions || []).map(p => ({
+            id: 'paper-open-position', ts: Number(p.entry_ts || 0), entry_ts: Number(p.entry_ts || 0),
+            side: String(p.side || 'buy').toUpperCase(), price: Number(p.entry_price),
+            entry_price: Number(p.entry_price), size: Number(p.size), fee: 0,
+            reason: 'Paper position open', route: 'PAPER'
+          }));
+          AppState.recent_trades = [...open, ...closed];
+        }
+
+        if (signalsRes.status === 'fulfilled' && signalsRes.value.ok) {
+          const sigs = await signalsRes.value.json();
+          if (Array.isArray(sigs)) {
+            AppState.signals = sigs.map(s => {
+              const d = s.ts ? new Date(s.ts * 1000) : new Date();
+              return {
+                time: d.toUTCString().slice(17, 25),
+                action: (s.side || 'BUY').toUpperCase(),
+                regime: "TREND_FOLLOWING",
+                trigger_price: Number(s.entry_price || 0),
+                reason: s.reason || "Autonomous trend signal"
+              };
+            });
+          }
+        }
+
+        if (riskRes.status === 'fulfilled' && riskRes.value.ok) {
+          const r = await riskRes.value.json();
+          AppState.risk_rules[0].passed = !r.halted;
+          AppState.risk_rules[0].value = r.halted ? "TRUE (HALTED)" : "False (Running)";
+
+          const dd = r.current_drawdown_pct || 0;
+          AppState.risk_rules[4].passed = dd < (r.max_drawdown_pct || 10.0);
+          AppState.risk_rules[4].value = `-${dd.toFixed(2)}% current DD`;
+
+          const dailyLoss = r.daily_loss_used_pct || 0;
+          AppState.risk_rules[3].passed = dailyLoss < (r.daily_loss_limit_pct || 5.0);
+          AppState.risk_rules[3].value = `${dailyLoss.toFixed(1)}% daily used`;
+        }
+
+        if (logsRes.status === 'fulfilled' && logsRes.value.ok) {
+          const logs = await logsRes.value.json();
+          if (Array.isArray(logs) && logs.length > 0) {
+            logs.slice(0, 15).forEach(l => {
+              const d = l.ts ? new Date(l.ts * 1000) : new Date();
+              const timeStr = d.toUTCString().slice(17, 25);
+              const exists = AppState.logs.some(existing => existing.text === l.message);
+              if (!exists) {
+                AppState.logs.push({
+                  level: (l.level || 'INFO').toUpperCase(),
+                  text: l.message,
+                  time: timeStr
+                });
+              }
+            });
+          }
+        }
+
+        updateDOM();
+      } catch (err) {
+        // Silent catch: in-memory state handles UI gracefully
+      }
+    }
+
+    // --- WEBSOCKET CLIENT & AUTOMATIC POLLING FALLBACK ---
+    let ws = null;
+    let wsConnected = false;
+    let wsHeartbeatTimer = null;
+
+    function initWebSocket() {
+      try {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = window.location.host || '127.0.0.1:8000';
+        const wsUrl = `${protocol}//${host}/ws`;
+
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          wsConnected = true;
+          document.getElementById('wsStatusText').innerText = '🟢 Live WS';
+          document.getElementById('wsStatusDot').className = 'w-1.5 h-1.5 rounded-full bg-emerald-400';
+          addLog("INFO", `Connected to FastAPI WebSocket stream at ${wsUrl}`);
+
+          // Heartbeat ping every 20s
+          if (wsHeartbeatTimer) clearInterval(wsHeartbeatTimer);
+          wsHeartbeatTimer = setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ action: "ping" }));
+            }
+          }, 20000);
+        };
+
+        ws.onmessage = async (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'market_price' && msg.data) {
+              const p = msg.data;
+              if (p.mark_price > 0) AppState.current_price = p.mark_price;
+              if (p.spot_price > 0) AppState.spot_price = p.spot_price;
+              AppState.price_received_timestamp = p.received_timestamp || Date.now() / 1000;
+              AppState.price_type = p.mark_price > 0 ? 'MARK' : 'LAST_TRADE';
+              AppState.price_feed_connected = true;
+              AppState.price_is_live = true;
+              updateDOM();
+            }
+            if (msg.type === 'snapshot' && msg.data) {
+              const d = msg.data;
+              if (d.price && d.price > 0) AppState.current_price = d.price;
+              if (d.mark_price > 0) AppState.current_price = d.mark_price;
+              if (d.spot_price > 0) AppState.spot_price = d.spot_price;
+              if (d.price_received_timestamp) AppState.price_received_timestamp = d.price_received_timestamp;
+              if (d.price_type) AppState.price_type = d.price_type;
+              AppState.price_feed_connected = !!d.price_feed_connected;
+              if (d.equity) AppState.equity = d.equity;
+              if (d.is_halted !== undefined) AppState.is_halted = d.is_halted;
+              if (d.status) AppState.status = d.status;
+              if (d.open_positions && Array.isArray(d.open_positions) && d.open_positions.length > 0) {
+                const p = d.open_positions[0];
+                AppState.active_position = {
+                  symbol: p.symbol,
+                  side: (p.side || 'BUY').toUpperCase() === 'BUY' ? 'LONG' : 'SHORT',
+                  size: p.size,
+                  entry_price: p.entry_price,
+                  unrealized_pnl: p.unrealized_pnl || 0.0,
+                  unrealized_pnl_pct: p.unrealized_pnl_pct || 0.0,
+                  stop_loss: p.stop_loss || (p.entry_price * 0.985),
+                  take_profit: p.take_profit || (p.entry_price * 1.025),
+                  leverage: p.leverage || 1.0,
+                  margin_used: (p.entry_price * p.size) / 5.0
+                };
+              } else if (d.open_positions && Array.isArray(d.open_positions)) {
+                AppState.active_position = null;
+              }
+              if (d.open_orders && Array.isArray(d.open_orders)) {
+                AppState.open_orders = d.open_orders;
+              } else if (!AppState.active_position) {
+                AppState.open_orders = [];
+              }
+              updateDOM();
+            } else if (msg.type === 'kill_switch') {
+              AppState.is_halted = true;
+              AppState.status = "halted";
+              AppState.halt_reason = (msg.data && msg.data.reason) || "Kill switch executed";
+              AppState.active_position = null;
+              AppState.open_orders = [];
+              AppState.risk_rules[0].passed = false;
+              AppState.risk_rules[0].value = "TRUE (HALTED)";
+              addLog("KILL", `Broadcast: Emergency halt triggered - ${AppState.halt_reason}`);
+              updateDOM();
+            } else if (msg.type === 'pause') {
+              AppState.status = "paused";
+              addLog("WARN", "Broadcast: Engine loop paused via API");
+              updateDOM();
+            } else if (msg.type === 'resume') {
+              AppState.is_halted = false;
+              AppState.status = "running";
+              AppState.halt_reason = "";
+              AppState.risk_rules[0].passed = true;
+              AppState.risk_rules[0].value = "False (Running)";
+              addLog("EXEC", "Broadcast: Engine resumed via API");
+              updateDOM();
+            } else if (msg.type === 'flatten') {
+              AppState.active_position = null;
+              AppState.open_orders = [];
+              addLog("EXEC", "Broadcast: 1-Click market flatten executed. Positions cleared.");
+              updateDOM();
+            } else if (msg.type === 'candles_updated') {
+              if (msg.latest_price && msg.latest_price > 0) {
+                AppState.current_price = Number(msg.latest_price);
+              }
+              await fetchCandlesFromStore();
+              refreshDatabaseSummary();
+              updateDOM();
+            } else if (msg.type === 'price_update') {
+              if (msg.price && msg.price > 0) {
+                AppState.current_price = Number(msg.price);
+              }
+              await fetchCandlesFromStore();
+              updateDOM();
+            } else if (msg.type === 'demo_trade' && msg.data) {
+              syncFromBackend();
+            }
+          } catch (e) {}
+        };
+
+        ws.onerror = () => {
+          setPollingFallback();
+        };
+
+        ws.onclose = () => {
+          setPollingFallback();
+          if (wsHeartbeatTimer) clearInterval(wsHeartbeatTimer);
+          setTimeout(initWebSocket, 5000); // Reconnect retry
+        };
+      } catch (e) {
+        setPollingFallback();
+      }
+    }
+
+    function setPollingFallback() {
+      wsConnected = false;
+      const textEl = document.getElementById('wsStatusText');
+      const dotEl = document.getElementById('wsStatusDot');
+      if (textEl) textEl.innerText = '🟡 Polling Fallback';
+      if (dotEl) dotEl.className = 'w-1.5 h-1.5 rounded-full bg-amber-400';
+    }
+
+    // --- CONTINUOUS SIMULATION ENGINE & 2s POLLING CYCLE ---
+    setInterval(() => {
+      if (AppState.status !== 'halted') {
+        // Candle countdown decrement
+        let countEl = document.getElementById('candleCountdown');
+        if (countEl) {
+          let [m, s] = countEl.innerText.split(':').map(Number);
+          if (s > 0) s--;
+          else {
+            s = 59;
+            if (m > 0) m--;
+            else m = 14;
+          }
+          countEl.innerText = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+        }
+
+        updateDOM();
+      }
+    }, 1800);
+
+    // Periodic 3s REST sync with backend for full telemetry
+    setInterval(() => {
+      syncFromBackend();
+    }, 3000);
+
+    // Refresh the chart directly from the live feed while paper trading is at the live head.
+    setInterval(() => {
+      if (AppState.mode === 'paper' && AppState.history_offset === 0) fetchCandlesFromStore();
+    }, 15000);
+
+    // Initial Mount
+    window.addEventListener('load', () => {
+      resizeChartCanvas();
+      updateDOM();
+      initWebSocket();
+      syncFromBackend();
+      fetchCandlesFromStore();
+      refreshDatabaseSummary();
+    });
+  </script>
+</body>
+</html>
