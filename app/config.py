@@ -7,10 +7,13 @@ except ImportError:
     SettingsConfigDict = dict  # type: ignore
 
 class Settings(BaseSettings):
+    # Authenticated account/order requests stay on demo testnet by default.
     DELTA_BASE_URL: str = "https://cdn-ind.testnet.deltaex.org"
-    # Public market data socket. DELTA_WS_URL is retained for compatibility with
-    # older configuration files; the unauthenticated public feed has its own host.
-    DELTA_PUBLIC_WS_URL: str = "wss://socket-ind-pub.testnet.deltaex.org"
+    # Paper trading reads live public prices/candles from production. This is
+    # independent of DELTA_BASE_URL and does not enable real order execution.
+    DELTA_MARKET_DATA_BASE_URL: str = "https://api.india.delta.exchange"
+    # Public feed URL; DELTA_WS_URL remains for older configuration files.
+    DELTA_PUBLIC_WS_URL: str = "wss://public-socket.india.delta.exchange"
     DELTA_WS_URL: str = "wss://socket-ind-pub.testnet.deltaex.org"
     DELTA_API_KEY: str = ""
     DELTA_API_SECRET: str = ""
@@ -48,5 +51,13 @@ class Settings(BaseSettings):
         if "testnet" not in v.lower():
             raise ValueError(f"DELTA_BASE_URL must be a testnet URL! Given: {v}")
         return v
+
+    @field_validator("DELTA_MARKET_DATA_BASE_URL")
+    @classmethod
+    def validate_market_data_url(cls, v: str) -> str:
+        allowed = ("https://api.india.delta.exchange", "https://cdn-ind.testnet.deltaex.org")
+        if v.rstrip("/").lower() not in allowed:
+            raise ValueError("DELTA_MARKET_DATA_BASE_URL must be a supported Delta India production or testnet URL")
+        return v.rstrip("/")
 
 settings = Settings()

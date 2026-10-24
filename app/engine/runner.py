@@ -130,6 +130,7 @@ class EngineRunner:
         if self.risk_manager.is_halted():
             logger.warning("[engine] Risk manager is HALTED. Existing paper positions remain managed; no new entries.")
             return None
+
         logger.info(
             "[engine] Latest bar close: %.2f at %d",
             latest_candle.close,

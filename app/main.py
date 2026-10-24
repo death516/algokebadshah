@@ -29,6 +29,7 @@ from app.exchange.ws import DeltaWebSocket
 # Global services: public Delta candle feed with simulated paper execution.
 store = get_default_store()
 delta_client = DeltaClient()
+market_data_client = DeltaClient(base_url=settings.DELTA_MARKET_DATA_BASE_URL)
 executor = PaperExecutor(
     initial_equity=settings.PAPER_START_EQUITY,
     fee_rate=settings.PAPER_FEE_RATE,
@@ -37,20 +38,20 @@ executor = PaperExecutor(
 risk_manager = DeltaRiskManager(flatten_callback=executor.flatten_all,
                                 sizing_mode="anti_martingale")
 executor.on_trade_closed = risk_manager.record_trade_result
-market_data = DeltaMarketData(client=delta_client, store=store)
+market_data = DeltaMarketData(client=market_data_client, store=store)
 strategy = TrendStrategy(symbol=settings.SYMBOL, params=PRODUCTION_PARAMS,
                          htf_timeframe=settings.HTF_TIMEFRAME)
 
 def seed_initial_candles(target_store):
-    """Seed real Bitcoin live data from Delta Exchange Testnet or local cache into database."""
+    """Seed current public Bitcoin data or local cache into the database."""
     try:
-        # First, try to fetch current live candles from Delta Exchange Testnet
+        # First, seed candles from the configured public market-data environment.
         try:
-            live_candles = delta_client.get_candles(settings.SYMBOL, "15m", limit=100)
+            live_candles = market_data_client.get_candles(settings.SYMBOL, "15m", limit=100)
             if live_candles:
                 target_store.save_candles(settings.SYMBOL, "15m", live_candles)
                 logger.info("[storage] Seeded %d live 15m candles directly from Delta Exchange into database.", len(live_candles))
-                live_1h = delta_client.get_candles(settings.SYMBOL, "1h", limit=50)
+                live_1h = market_data_client.get_candles(settings.SYMBOL, "1h", limit=50)
                 if live_1h:
                     target_store.save_candles(settings.SYMBOL, "1h", live_1h)
                 return
@@ -170,7 +171,8 @@ set_services(
 async def lifespan(app: FastAPI):
     logger.info("Starting up Algo Trading Bot...")
     logger.info("Target Symbol: %s, Timeframe: %s", settings.SYMBOL, settings.TIMEFRAME)
-    logger.info("Testnet URL: %s", settings.DELTA_BASE_URL)
+    logger.info("Execution API URL: %s", settings.DELTA_BASE_URL)
+    logger.info("Public market-data URL: %s", settings.DELTA_MARKET_DATA_BASE_URL)
     logger.info("Active Storage: %s", store.__class__.__name__)
     runner_task = None
     price_feed_task = None

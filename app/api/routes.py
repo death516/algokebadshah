@@ -529,18 +529,17 @@ async def sync_exchange_candles(
     resolution: str = Query(default="15m"),
     limit: int = Query(default=50, ge=5, le=500),
 ) -> Dict[str, Any]:
-    """Explicitly fetch live real-time candles from Delta Exchange Testnet,
+    """Explicitly fetch current candles using the configured public Delta feed,
     persist them to algo_bot2 database, and calibrate the system mark price.
     """
-    from app.exchange.client import DeltaClient
     sym = _normalize_symbol(symbol)
-    client = DeltaClient()
-    candles = client.get_candles(sym, resolution, limit=limit)
+    market_data = get_service("market_data")
+    candles = market_data.get_candles(sym, resolution, limit=limit) if market_data else []
 
     if not candles:
         raise HTTPException(
             status_code=502,
-            detail=f"Delta Exchange Testnet returned 0 candles for {sym} ({resolution}). Check testnet connectivity."
+            detail=f"Delta Exchange returned 0 candles for {sym} ({resolution}). Check the configured public market-data feed."
         )
 
     store = get_service("store")
@@ -556,12 +555,12 @@ async def sync_exchange_candles(
         "count": len(candles),
         "latest_price": latest_c.close,
         "latest_ts": latest_c.ts,
-        "source": "Delta Exchange Testnet"
+        "source": "Delta Exchange public market data"
     })
 
     return {
         "status": "ok",
-        "source": "Delta Exchange Testnet",
+        "source": "Delta Exchange public market data",
         "symbol": sym,
         "resolution": resolution,
         "count": len(candles),
@@ -1215,7 +1214,9 @@ def get_backtest_candles(
     resolution: str = Query(default="15m"),
     symbol: Optional[str] = None,
     source: Optional[str] = None,
-    limit: int = Query(default=72, ge=1, le=50000),
+    # A full year of 1m BTC candles is about 526k rows; keep the endpoint able
+    # to return the same uploaded range that the backtest itself analyzes.
+    limit: int = Query(default=72, ge=1, le=1000000),
     before_ts: Optional[int] = None,
     after_ts: Optional[int] = None,
 ) -> List[Dict[str, Any]]:

@@ -8,6 +8,8 @@
 *.sqlite
 *.sqlite3
 trader.db
+server.stdout.log
+server.stderr.log
 
 # Python cache & bytecode
 __pycache__/
