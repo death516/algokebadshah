@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     MAX_NOTIONAL_USD: float = 50000.0
     STALE_DATA_SECONDS: int = 120
     DEMO_MODE: bool = False
-    PAPER_START_EQUITY: float = 10000.0
+    PAPER_START_EQUITY: float = 100000.0
     PAPER_FEE_RATE: float = 0.0003
     PAPER_SLIPPAGE_BPS: float = 2.0
     PAPER_TEST_MAX_NOTIONAL_USD: float = 100.0

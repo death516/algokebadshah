@@ -272,11 +272,11 @@
       <div class="bg-[#111827] border border-[#1f2937] hover:border-[#2d3a4f] p-2 rounded transition">
         <div class="flex items-center justify-between text-[11px] font-mono-num text-slate-400 mb-1">
           <span class="uppercase tracking-wider font-semibold">Account Equity</span>
-          <span class="text-slate-500">Peak: <span class="text-slate-300" id="kpiPeakEquity">$10,000.00</span></span>
+          <span class="text-slate-500">Peak: <span class="text-slate-300" id="kpiPeakEquity">$100,000.00</span></span>
         </div>
         <div class="flex items-baseline justify-between">
-          <div class="font-mono-num text-xl font-bold text-white tracking-tight" id="kpiNetEquity">$10,000.00</div>
-          <div class="font-mono-num text-[11px] text-slate-400">Cash: <span class="text-slate-200 font-medium" id="kpiCash">$10,000.00</span></div>
+          <div class="font-mono-num text-xl font-bold text-white tracking-tight" id="kpiNetEquity">$100,000.00</div>
+          <div class="font-mono-num text-[11px] text-slate-400">Cash: <span class="text-slate-200 font-medium" id="kpiCash">$100,000.00</span></div>
         </div>
         <!-- Daily PnL vs Limit Indicator -->
         <div class="mt-1.5 pt-1 border-t border-[#192231] flex items-center justify-between font-mono-num text-[10px]">
@@ -341,7 +341,7 @@
         </div>
         <div class="flex items-baseline justify-between font-mono-num">
           <div class="text-xl font-bold text-white tracking-tight" id="kpiMarginUsed">$0.00</div>
-          <div class="text-[11px] text-slate-400">Available: <span class="text-slate-200" id="kpiMarginAvail">$10,000.00</span></div>
+          <div class="text-[11px] text-slate-400">Available: <span class="text-slate-200" id="kpiMarginAvail">$100,000.00</span></div>
         </div>
         <div class="mt-1.5 pt-1 border-t border-[#192231] flex items-center justify-between font-mono-num text-[10px] text-slate-400">
           <span>Brackets: <strong class="text-slate-400" id="kpiBracketsCount">0 Active (Flat)</strong></span>
@@ -586,7 +586,7 @@
             <table class="w-full text-left font-mono-num text-xs">
               <thead class="bg-[#0b0f17] text-[10px] text-slate-500 uppercase sticky top-0 border-b border-[#1f2937]">
                 <tr>
-                  <th class="py-1.5 px-3">Execution Time</th>
+                  <th class="py-1.5 px-3">Execution Time (IST)</th>
                   <th class="py-1.5 px-2">Side</th>
                   <th class="py-1.5 px-2">Fill Price</th>
                   <th class="py-1.5 px-2">Size</th>
@@ -927,9 +927,9 @@
       price_is_live: false,
       price_type: 'MARK',
       price_change_pct: 1.85,
-      equity: 10000.00,
-      cash_balance: 8352.00,
-      peak_equity: 10000.00,
+      equity: 100000.00,
+      cash_balance: 100000.00,
+      peak_equity: 100000.00,
       daily_pnl: 0.00,
       daily_pnl_limit: -500.00,
       history_offset: 0, // 0 = live head, 48 = 48 bars back, etc.
@@ -981,9 +981,17 @@
     const candleDateFormatter = new Intl.DateTimeFormat('en-IN', {
       timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric'
     });
+    const candleIsoDateFormatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit'
+    });
     const candleTimeFormatter = new Intl.DateTimeFormat('en-IN', {
       timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
     });
+    const formatIstTime = (timestampSeconds) => candleTimeFormatter.format(new Date(Number(timestampSeconds) * 1000));
+    const formatIstDateTime = (timestampSeconds) => {
+      const date = new Date(Number(timestampSeconds) * 1000);
+      return `${candleDateFormatter.format(date)} ${candleTimeFormatter.format(date)} IST`;
+    };
 
     function resizeChartCanvas() {
       const container = document.getElementById('chartCanvasWrapper');
@@ -1503,8 +1511,9 @@
         const parts = timeStr.split(':').map(Number);
         if (parts.length >= 2) {
           const d = refTs ? new Date(refTs * 1000) : new Date();
-          d.setUTCHours(parts[0], parts[1], parts[2] || 0, 0);
-          return Math.floor(d.getTime() / 1000);
+          const dateParts = Object.fromEntries(candleIsoDateFormatter.formatToParts(d).map(part => [part.type, part.value]));
+          const istAsUtc = Date.UTC(Number(dateParts.year), Number(dateParts.month) - 1, Number(dateParts.day), parts[0], parts[1], parts[2] || 0);
+          return Math.floor((istAsUtc - (5 * 60 + 30) * 60_000) / 1000);
         }
       } catch (e) {}
       return refTs || Math.floor(Date.now() / 1000);
@@ -2114,7 +2123,7 @@
               const d = tsVal ? new Date(tsVal * 1000) : new Date();
               return {
                 id: `BT-${idx + 1}`,
-                time: d.toUTCString().slice(17, 25),
+                time: formatIstTime(tsVal),
                 ts: tsVal || Math.floor(d.getTime() / 1000),
                 side: (t.side || 'BUY').toUpperCase(),
                 price: Number(t.entry_price || t.exit_price || 0),
@@ -2463,10 +2472,10 @@
         const route = t.route || 'DELTA-TESTNET';
 
         const tradeTs = Number(t.entry_ts || t.ts || 0);
-        const tradeDate = tradeTs ? new Date(tradeTs * 1000).toISOString().replace('T', ' ').slice(0, 19) : (t.time || '--');
+        const tradeDate = tradeTs ? formatIstDateTime(tradeTs) : `${t.time || '--'} IST`;
 
         tr.innerHTML = `
-          <td class="py-1.5 px-3 font-mono text-[10px] text-slate-400">${tradeDate} UTC</td>
+          <td class="py-1.5 px-3 font-mono text-[10px] text-slate-400">${tradeDate}</td>
           <td class="py-1.5 px-2">
             <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${isBuy ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}">${side}</span>
           </td>
@@ -2502,7 +2511,7 @@
               <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${actionUpper.includes('BUY') ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}">${actionUpper}</span>
               <span class="text-slate-300 font-semibold">$${Number(s.trigger_price || 0).toFixed(2)}</span>
             </div>
-            <span class="text-[10px] text-slate-500">${s.time || ''} UTC</span>
+            <span class="text-[10px] text-slate-500">${s.time || ''} IST</span>
           </div>
           <div class="text-[11px] text-slate-400 leading-snug">${s.reason || ''}</div>
         `;
@@ -2532,7 +2541,7 @@
         if (level === 'RISK') badge = 'text-cyan-300 bg-cyan-950/80 border border-cyan-700/50';
 
         row.innerHTML = `
-          <span class="text-slate-600 select-none">${l.time || '12:00:00'}</span>
+          <span class="text-slate-600 select-none">${l.time || '12:00:00'} IST</span>
           <span class="px-1 rounded text-[9px] font-bold uppercase tracking-wider ${badge}">[${level}]</span>
           <span class="text-slate-300 flex-1">${l.text || l.message || ''}</span>
         `;
@@ -2545,10 +2554,7 @@
     }
 
     function addLog(level, text) {
-      const now = new Date();
-      const timeStr = String(now.getHours()).padStart(2, '0') + ':' +
-                      String(now.getMinutes()).padStart(2, '0') + ':' +
-                      String(now.getSeconds()).padStart(2, '0');
+      const timeStr = formatIstTime(Date.now() / 1000);
       AppState.logs.push({ level, text, time: timeStr });
       if (AppState.logs.length > 120) AppState.logs.shift();
       renderLogs();
@@ -2855,7 +2861,7 @@
               const d = t.ts ? new Date(t.ts * 1000) : new Date();
               return {
                 id: t.client_order_id || `TRD-${t.id || 1000}`,
-                time: d.toUTCString().slice(17, 25),
+                time: formatIstTime(t.ts || Date.now() / 1000),
                 ts: t.ts || Math.floor(d.getTime() / 1000),
                 side: (t.side || 'BUY').toUpperCase(),
                 price: Number(t.price || 0),
@@ -2889,9 +2895,9 @@
           const sigs = await signalsRes.value.json();
           if (Array.isArray(sigs)) {
             AppState.signals = sigs.map(s => {
-              const d = s.ts ? new Date(s.ts * 1000) : new Date();
               return {
-                time: d.toUTCString().slice(17, 25),
+                ts: s.ts,
+                time: formatIstTime(s.ts || Date.now() / 1000),
                 action: (s.side || 'BUY').toUpperCase(),
                 regime: "TREND_FOLLOWING",
                 trigger_price: Number(s.entry_price || 0),
@@ -2919,8 +2925,7 @@
           const logs = await logsRes.value.json();
           if (Array.isArray(logs) && logs.length > 0) {
             logs.slice(0, 15).forEach(l => {
-              const d = l.ts ? new Date(l.ts * 1000) : new Date();
-              const timeStr = d.toUTCString().slice(17, 25);
+              const timeStr = formatIstTime(l.ts || Date.now() / 1000);
               const exists = AppState.logs.some(existing => existing.text === l.message);
               if (!exists) {
                 AppState.logs.push({
@@ -3089,7 +3094,7 @@
       if (dotEl) dotEl.className = 'w-1.5 h-1.5 rounded-full bg-amber-400';
     }
 
-    // Countdown follows the selected chart timeframe and the UTC candle boundary.
+    // Countdown follows the selected chart timeframe's epoch-aligned boundary.
     let countdownCandleKey = '';
     function updateCandleCountdown() {
       const timeframe = AppState.timeframe || '15m';

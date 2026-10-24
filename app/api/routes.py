@@ -196,8 +196,8 @@ def get_system_snapshot() -> Dict[str, Any]:
     signals = store.get_signals(limit=10) if (store and hasattr(store, "get_signals")) else []
     curve = store.get_equity_curve(limit=20) if store else []
 
-    peak = account.peak_equity if (account and account.peak_equity > 0) else 10000.0
-    current = account.equity if account else 10000.0
+    peak = account.peak_equity if (account and account.peak_equity > 0) else settings.PAPER_START_EQUITY
+    current = account.equity if account else settings.PAPER_START_EQUITY
     drawdown = max(0.0, round(((peak - current) / peak) * 100.0, 2))
 
     positions = account.open_positions if account else []
@@ -275,7 +275,7 @@ def get_status() -> Dict[str, Any]:
     if current_price <= 0.0:
         current_price = 0.0
 
-    current = account.equity if account else 10000.0
+    current = account.equity if account else settings.PAPER_START_EQUITY
     positions = account.open_positions if account else []
     notional = sum(p.size * current_price for p in positions)
     margin_used = notional / float(settings.MAX_LEVERAGE)
@@ -287,7 +287,7 @@ def get_status() -> Dict[str, Any]:
         "cash": round(cash, 2),
         "margin_used": round(margin_used, 2),
         "daily_pnl": round(account.daily_pnl, 2) if account else 0.0,
-        "peak_equity": round(account.peak_equity, 2) if account else 10000.0,
+        "peak_equity": round(account.peak_equity, 2) if account else settings.PAPER_START_EQUITY,
         "open_positions_count": len(positions),
         "is_halted": is_halted,
         "halt_reason": halt_reason,
