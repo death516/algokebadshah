@@ -482,7 +482,8 @@
         <div class="absolute pointer-events-none hidden bg-[#111827]/95 border border-[#2d3a4f] px-2.5 py-1.5 rounded shadow-2xl text-[10px] font-mono-num z-30 backdrop-blur-sm" id="chartTooltip">
           <div class="text-slate-400 border-b border-slate-700/60 pb-0.5 mb-1 font-semibold flex items-center justify-between gap-4">
             <div>
-              <div class="text-slate-300" id="ttDate">-- --- ----</div>
+              <div class="text-slate-300" id="ttSymbol">BTCUSD</div>
+              <div id="ttDate">-- --- ----</div>
               <div id="ttTime">--:--:-- IST</div>
             </div>
             <span class="text-[9px] text-amber-400 font-bold" id="ttTf">15M</span>
@@ -492,7 +493,10 @@
             <div>H: <span class="text-emerald-400" id="ttHigh">--</span></div>
             <div>L: <span class="text-rose-400" id="ttLow">--</span></div>
             <div>C: <span class="text-white" id="ttClose">--</span></div>
-            <div class="col-span-2 text-slate-400 pt-0.5">Vol: <span class="text-amber-300 font-medium" id="ttVol">--</span> BTC</div>
+            <div>Range: <span class="text-slate-200" id="ttRange">--</span></div>
+            <div>Change: <span id="ttChange">--</span></div>
+            <div class="col-span-2 text-slate-400 pt-0.5">Volume: <span class="text-amber-300 font-medium" id="ttVol">--</span> BTC</div>
+            <div class="col-span-2 text-slate-500 text-[9px] pt-0.5">Unix timestamp: <span id="ttTimestamp">--</span></div>
           </div>
         </div>
         <div class="hidden absolute inset-y-0 border-l border-dashed border-white/40 pointer-events-none z-20" id="chartHoverLine"></div>
@@ -978,6 +982,7 @@
     let backtestCandleWidth = 10;
     let chartLayoutKey = '';
     let chartDragState = null;
+    let lastChartPointer = null;
     const candleDateFormatter = new Intl.DateTimeFormat('en-IN', {
       timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric'
     });
@@ -1373,9 +1378,10 @@
     // Keep the fixed-size canvas in sync with the visible slice as the backtest track scrolls.
     const chartWrapper = document.getElementById('chartCanvasWrapper');
     chartWrapper.addEventListener('scroll', () => {
-      document.getElementById('chartTooltip').classList.add('hidden');
-      document.getElementById('chartHoverLine').classList.add('hidden');
       renderChart();
+      // Keep candle details aligned with the pointer while the chart is panned,
+      // zoomed, or automatically advanced by incoming live candles.
+      if (lastChartPointer && !chartDragState) updateCandleHoverInfo(lastChartPointer);
     }, { passive: true });
     function zoomBacktestChart(factor) {
       if (AppState.candles.length <= 72) return;
@@ -1427,6 +1433,7 @@
     // Show candle details as the pointer moves, including after chart drag/pan.
     function updateCandleHoverInfo(e) {
       if (e.pointerType === 'touch' || chartDragState) return;
+      lastChartPointer = e;
       const container = document.getElementById('chartCanvasWrapper');
       const rect = canvas.getBoundingClientRect();
       const rightPriceAxisWidth = 75;
@@ -1440,7 +1447,7 @@
       const scrollableChart = count > 72;
       const candleWidth = scrollableChart ? backtestCandleWidth : 12;
       const scrollLeft = scrollableChart ? container.scrollLeft : 0;
-      if (mouseX < 0 || mouseX > chartWidth) {
+      if (mouseX < 0 || mouseX > chartWidth || mouseY < 0 || mouseY > rect.height) {
         document.getElementById('chartTooltip').classList.add('hidden');
         document.getElementById('chartHoverLine').classList.add('hidden');
         return;
@@ -1451,6 +1458,8 @@
       const firstCandleX = scrollableChart
         ? -scrollLeft
         : Math.max(0, chartWidth - candleWidth * count);
+      // Snap to the nearest candle column so the details still appear when
+      // the wick/body itself is only a few pixels wide.
       const index = Math.floor((mouseX - firstCandleX) / candleWidth);
 
       if (index >= 0 && index < count) {
@@ -1461,32 +1470,48 @@
         hoverLine.classList.remove('hidden');
         hoverLine.style.left = `${mouseX}px`;
 
+        const tooltipWidth = tooltip.offsetWidth || 190;
+        const tooltipHeight = tooltip.offsetHeight || 120;
         let left = mouseX + 15;
-        if (left + 160 > chartWidth) left = mouseX - 170;
-        tooltip.style.left = `${left}px`;
-        tooltip.style.top = `${Math.min(mouseY + 10, rect.height - 110)}px`;
+        if (left + tooltipWidth > rect.width) left = mouseX - tooltipWidth - 15;
+        tooltip.style.left = `${Math.max(4, Math.min(left, rect.width - tooltipWidth - 4))}px`;
+        tooltip.style.top = `${Math.max(4, Math.min(mouseY + 10, rect.height - tooltipHeight - 4))}px`;
 
         const d = new Date(c.ts * 1000);
+        const open = Number(c.open);
+        const high = Number(c.high);
+        const low = Number(c.low);
+        const close = Number(c.close);
+        const change = close - open;
+        const changePct = open ? (change / open) * 100 : 0;
         document.getElementById('ttDate').innerText = candleDateFormatter.format(d);
         document.getElementById('ttTime').innerText = candleTimeFormatter.format(d) + ' IST';
+        document.getElementById('ttSymbol').innerText = AppState.symbol || 'BTCUSD';
         document.getElementById('ttTf').innerText = AppState.timeframe.toUpperCase();
         const formatPrice = (value) => '$' + Number(value).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-        document.getElementById('ttOpen').innerText = formatPrice(c.open);
-        document.getElementById('ttHigh').innerText = formatPrice(c.high);
-        document.getElementById('ttLow').innerText = formatPrice(c.low);
-        document.getElementById('ttClose').innerText = formatPrice(c.close);
+        document.getElementById('ttOpen').innerText = formatPrice(open);
+        document.getElementById('ttHigh').innerText = formatPrice(high);
+        document.getElementById('ttLow').innerText = formatPrice(low);
+        document.getElementById('ttClose').innerText = formatPrice(close);
+        document.getElementById('ttRange').innerText = formatPrice(high - low);
+        const changeEl = document.getElementById('ttChange');
+        changeEl.innerText = `${change >= 0 ? '+' : '−'}${formatPrice(Math.abs(change))} (${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%)`;
+        changeEl.className = change >= 0 ? 'text-emerald-400' : 'text-rose-400';
         document.getElementById('ttVol').innerText = Number(c.volume || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
+        document.getElementById('ttTimestamp').innerText = `${Number(c.ts)} seconds`;
       } else {
         document.getElementById('chartTooltip').classList.add('hidden');
         document.getElementById('chartHoverLine').classList.add('hidden');
       }
     }
 
-    // Keep mouse events as a fallback for browsers that do not deliver pointer
-    // movement consistently on a sticky canvas inside a scrolling container.
-    canvas.addEventListener('mousemove', updateCandleHoverInfo);
+    // Track the whole chart surface. The canvas is sticky while the chart track
+    // scrolls, and other overlays can otherwise intercept canvas-only events.
+    chartWrapper.addEventListener('pointermove', updateCandleHoverInfo);
+    chartWrapper.addEventListener('mousemove', updateCandleHoverInfo);
 
-    canvas.addEventListener('mouseleave', () => {
+    chartWrapper.addEventListener('pointerleave', () => {
+      lastChartPointer = null;
       document.getElementById('chartTooltip').classList.add('hidden');
       document.getElementById('chartHoverLine').classList.add('hidden');
     });
