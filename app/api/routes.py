@@ -16,6 +16,7 @@ Endpoints (available under both /api/* and /*):
 - POST /pause        - Pauses new trade generation
 - POST /resume       - Resumes trading operations
 - POST /demo/trigger - Trigger a capped, paper-only order pipeline check
+- POST /demo/order-check - Submit one minimum-size, bracketed Delta Demo test order
 - WS   /ws           - Real-time bidirectional WebSocket stream for dashboard
 - GET  /stream       - Server-Sent Events (SSE) live updates stream
 """
@@ -45,53 +46,78 @@ router = APIRouter(tags=["trading"])
 
 # Global operating mode: 'live' or 'uploaded'
 _current_mode: str = "paper"
-_BACKTEST_PAUSE_REASON = "Dashboard switched to Backtest Analysis"
+_HISTORY_PAUSE_REASON = "Dashboard switched to Candle History"
 
 
 class ModeRequest(BaseModel):
     mode: str
 
 
-class BacktestRequest(BaseModel):
-    execution_timeframe: str = "15m"
-    trend_timeframe: str = "1h"
-    symbol: Optional[str] = None
+class ExecutionModeRequest(BaseModel):
+    mode: str
+
+
+class AssetRequest(BaseModel):
+    symbol: str
+
 
 # Dependency references set by app.main at startup or via set_services
 _services: Dict[str, Any] = {}
 _live_market_price: Dict[str, Any] = {"feed_connected": False}
+_live_market_prices: Dict[str, Dict[str, Any]] = {}
+_execution_mode: str = "paper"
+_execution_mode_controller = None
+_active_symbol: str = settings.SYMBOL
+_asset_switch_controller = None
+_usd_inr_cache: Dict[str, Any] = {"rate": None, "fetched_at": 0.0}
+_demo_order_check_used = False
+_DEMO_ORDER_CHECK_REASON = "One-shot Delta Demo order connectivity check"
+
+
+def get_active_symbol() -> str:
+    return _active_symbol
 
 
 def set_live_market_price(data: Dict[str, Any]) -> None:
     """Store the latest public exchange ticker values for API and dashboard use."""
-    _live_market_price.update(data)
+    raw_symbol = str(data.get("symbol") or "").upper().replace("MARK:", "").strip()
+    if raw_symbol not in {"BTCUSD", "ETHUSD", "SOLUSD"}:
+        return
+    normalized = dict(data)
+    normalized["symbol"] = raw_symbol
+    _live_market_prices[raw_symbol] = normalized
 
 
 def set_live_feed_connected(connected: bool) -> None:
     _live_market_price["feed_connected"] = bool(connected)
+    for price_data in _live_market_prices.values():
+        price_data["feed_connected"] = bool(connected)
 
 
-def _live_price_fields() -> Dict[str, Any]:
-    received = float(_live_market_price.get("received_timestamp") or 0)
+def _live_price_fields(symbol: Optional[str] = None) -> Dict[str, Any]:
+    price_data = dict(_live_market_prices.get((symbol or _active_symbol).upper(), {}))
+    price_data.setdefault("feed_connected", _live_market_price.get("feed_connected", False))
+    received = float(price_data.get("received_timestamp") or 0)
     age = max(0, round(time.time() - received)) if received else None
     return {
-        "mark_price": _live_market_price.get("mark_price"),
-        "spot_price": _live_market_price.get("spot_price"),
-        "last_trade_price": _live_market_price.get("last_price"),
-        "price_source": _live_market_price.get("source", "unavailable"),
-        "price_type": ("MARK" if _live_market_price.get("mark_price") else
-                       "LAST_TRADE" if _live_market_price.get("last_price") else "CANDLE_CLOSE"),
-        "price_timestamp": _live_market_price.get("source_timestamp"),
+        "mark_price": price_data.get("mark_price"),
+        "spot_price": price_data.get("spot_price"),
+        "last_trade_price": price_data.get("last_price"),
+        "price_source": price_data.get("source", "unavailable"),
+        "price_type": ("MARK" if price_data.get("mark_price") else
+                       "LAST_TRADE" if price_data.get("last_price") else "CANDLE_CLOSE"),
+        "price_timestamp": price_data.get("source_timestamp"),
         "price_received_timestamp": received or None,
         "price_age_seconds": age,
         "price_is_live": bool(received and age is not None and age <= 10),
-        "price_feed_connected": bool(_live_market_price.get("feed_connected")),
+        "price_feed_connected": bool(price_data.get("feed_connected")),
     }
 
 
-def _preferred_live_price() -> Optional[float]:
-    price = _live_market_price.get("mark_price") or _live_market_price.get("last_price")
-    received = float(_live_market_price.get("received_timestamp") or 0)
+def _preferred_live_price(symbol: Optional[str] = None) -> Optional[float]:
+    price_data = _live_market_prices.get((symbol or _active_symbol).upper(), {})
+    price = price_data.get("mark_price") or price_data.get("last_price")
+    received = float(price_data.get("received_timestamp") or 0)
     if price and received and time.time() - received <= 30:
         return float(price)
     return None
@@ -109,6 +135,27 @@ def set_services(executor=None, risk_manager=None, store=None, market_data=None,
         _services["market_data"] = market_data
     if strategy is not None:
         _services["strategy"] = strategy
+
+
+def set_execution_mode_controller(controller) -> None:
+    """Register the application-owned executor switch callback."""
+    global _execution_mode_controller
+    _execution_mode_controller = controller
+
+
+def set_execution_mode(mode: str) -> None:
+    global _execution_mode
+    _execution_mode = mode
+
+
+def set_asset_switch_controller(controller) -> None:
+    global _asset_switch_controller
+    _asset_switch_controller = controller
+
+
+def set_active_symbol(symbol: str) -> None:
+    global _active_symbol
+    _active_symbol = symbol.upper()
 
 
 def get_service(name: str) -> Any:
@@ -178,15 +225,15 @@ def get_system_snapshot() -> Dict[str, Any]:
 
     price = _preferred_live_price() or 0.0
     if store and hasattr(store, "get_latest_price"):
-        db_p = store.get_latest_price(settings.SYMBOL)
+        db_p = store.get_latest_price(get_active_symbol())
         if db_p and db_p > 0:
             price = float(db_p)
     if price <= 0.0 and store and hasattr(store, "get_candles"):
-        stored_c = store.get_candles(settings.SYMBOL, settings.TIMEFRAME, limit=1)
+        stored_c = store.get_candles(get_active_symbol(), settings.TIMEFRAME, limit=1)
         if stored_c:
             price = float(stored_c[-1]["close"])
     if price <= 0.0 and market_data:
-        candles = market_data.get_candles(settings.SYMBOL, settings.TIMEFRAME, limit=1)
+        candles = market_data.get_candles(get_active_symbol(), settings.TIMEFRAME, limit=1)
         if candles:
             price = float(candles[-1].close)
     if price <= 0.0:
@@ -227,9 +274,10 @@ def get_system_snapshot() -> Dict[str, Any]:
         "drawdown_pct": drawdown,
         "price": round(price, 2),
         **_live_price_fields(),
-        "symbol": settings.SYMBOL,
+        "symbol": get_active_symbol(),
         "mode": _current_mode,
-        "execution_mode": "paper",
+        "execution_mode": _execution_mode,
+        "exchange_orders_enabled": _execution_mode == "delta_demo",
         "open_positions": [p.model_dump() for p in positions],
         "open_orders": orders,
         "trades": trades,
@@ -261,15 +309,15 @@ def get_status() -> Dict[str, Any]:
 
     current_price = _preferred_live_price() or 0.0
     if store and hasattr(store, "get_latest_price"):
-        db_p = store.get_latest_price(settings.SYMBOL)
+        db_p = store.get_latest_price(get_active_symbol())
         if db_p and db_p > 0:
             current_price = float(db_p)
     if current_price <= 0.0 and store and hasattr(store, "get_candles"):
-        stored_c = store.get_candles(settings.SYMBOL, settings.TIMEFRAME, limit=1)
+        stored_c = store.get_candles(get_active_symbol(), settings.TIMEFRAME, limit=1)
         if stored_c:
             current_price = float(stored_c[-1]["close"])
     if current_price <= 0.0 and market_data:
-        candles = market_data.get_candles(settings.SYMBOL, settings.TIMEFRAME, limit=1)
+        candles = market_data.get_candles(get_active_symbol(), settings.TIMEFRAME, limit=1)
         if candles:
             current_price = float(candles[-1].close)
     if current_price <= 0.0:
@@ -291,12 +339,15 @@ def get_status() -> Dict[str, Any]:
         "open_positions_count": len(positions),
         "is_halted": is_halted,
         "halt_reason": halt_reason,
-        "symbol": settings.SYMBOL,
+        "symbol": get_active_symbol(),
         "current_price": round(current_price, 2),
         **_live_price_fields(),
         "mode": _current_mode,
-        "execution_mode": "paper",
+        "execution_mode": _execution_mode,
+        "exchange_orders_enabled": _execution_mode == "delta_demo",
         "demo_mode": settings.DEMO_MODE,
+        "account_connected": getattr(executor, "account_connected", None) if _execution_mode == "delta_demo" else None,
+        "account_error": getattr(executor, "last_account_error", None) if _execution_mode == "delta_demo" else None,
         "server_time": int(time.time()),
     }
 
@@ -411,13 +462,14 @@ def get_risk_status() -> Dict[str, Any]:
 
 @router.get("/price")
 def get_price(symbol: Optional[str] = None) -> Dict[str, Any]:
-    sym = symbol or settings.SYMBOL
-    live = _preferred_live_price() if sym.upper() == settings.SYMBOL.upper() else None
+    sym = symbol or get_active_symbol()
+    live = _preferred_live_price(sym)
     if live:
-        return {"symbol": sym, "price": round(live, 2), "mark_price": _live_market_price.get("mark_price"),
-                "spot_price": _live_market_price.get("spot_price"), "last_trade_price": _live_market_price.get("last_price"),
-                "price_type": "MARK" if _live_market_price.get("mark_price") else "LAST_TRADE",
-                **_live_price_fields()}
+        price_data = _live_market_prices.get(sym.upper(), {})
+        return {"symbol": sym, "price": round(live, 2), "mark_price": price_data.get("mark_price"),
+                "spot_price": price_data.get("spot_price"), "last_trade_price": price_data.get("last_price"),
+                "price_type": "MARK" if price_data.get("mark_price") else "LAST_TRADE",
+                **_live_price_fields(sym)}
     store = get_service("store")
     market_data = get_service("market_data")
     latest = None
@@ -431,7 +483,7 @@ def get_price(symbol: Optional[str] = None) -> Dict[str, Any]:
             latest = candles[-1].model_dump()
     if latest is None:
         return {"symbol": sym, "price": None, "timestamp": None, "price_source": "unavailable",
-                "price_type": "unavailable", **_live_price_fields()}
+                "price_type": "unavailable", **_live_price_fields(sym)}
     return {
         "symbol": sym,
         "price": latest.get("close", latest.get("price")),
@@ -442,15 +494,15 @@ def get_price(symbol: Optional[str] = None) -> Dict[str, Any]:
         "timestamp": latest.get("ts", int(time.time())),
         "price_source": "stored_candles",
         "price_type": "CANDLE_CLOSE",
-        **_live_price_fields(),
+        **_live_price_fields(sym),
     }
 
 
 def _normalize_symbol(sym: Optional[str]) -> str:
-    s = (sym or settings.SYMBOL).upper().replace("/", "").replace("-", "").strip()
+    s = (sym or get_active_symbol()).upper().replace("/", "").replace("-", "").strip()
     if s.endswith("PERP"):
         s = s[:-4]
-    return s or settings.SYMBOL
+    return s or get_active_symbol()
 
 
 def _uploaded_candles_path(symbol: str, timeframe: str) -> Path:
@@ -525,7 +577,7 @@ def get_candles(
 
 @router.post("/exchange/sync-candles")
 async def sync_exchange_candles(
-    symbol: str = Query(default=settings.SYMBOL),
+    symbol: Optional[str] = Query(default=None),
     resolution: str = Query(default="15m"),
     limit: int = Query(default=50, ge=5, le=500),
 ) -> Dict[str, Any]:
@@ -697,7 +749,7 @@ def _parse_json_candles(raw_data: Any, timeframe: str = "15m") -> List[Candle]:
 async def upload_candles(
     file: UploadFile = File(...),
     timeframe: str = Query(default="15m"),
-    symbol: str = Query(default=settings.SYMBOL),
+    symbol: Optional[str] = Query(default=None),
 ) -> Dict[str, Any]:
     """Upload Bitcoin candle dataset (.csv, .parquet, .json) into PostgreSQL algo_bot2."""
     store = get_service("store")
@@ -798,7 +850,7 @@ async def upload_candles(
 async def upload_candles_json(
     payload: Any = Body(...),
     timeframe: str = Query(default="15m"),
-    symbol: str = Query(default=settings.SYMBOL),
+    symbol: Optional[str] = Query(default=None),
 ) -> Dict[str, Any]:
     """Upload or paste raw Bitcoin candle JSON data directly into PostgreSQL algo_bot2."""
     store = get_service("store")
@@ -855,17 +907,19 @@ async def upload_candles_json(
 
 
 @router.post("/price/sync")
-async def sync_live_market_price(symbol: str = Query(default=settings.SYMBOL)) -> Dict[str, Any]:
-    """Fetch live real-world Bitcoin mark price from public exchange tickers (Coinbase / Binance)
+async def sync_live_market_price(symbol: Optional[str] = Query(default=None)) -> Dict[str, Any]:
+    """Fetch the selected market's live reference price from Coinbase or Binance
     and synchronize system price and store a fresh 1m bar in algo_bot2.
     """
+    symbol = _normalize_symbol(symbol)
+    base_asset = symbol.removesuffix("USD")
     store = get_service("store")
     live_price = None
     source = None
 
     try:
         req = urllib.request.Request(
-            "https://api.coinbase.com/v2/prices/BTC-USD/spot",
+            f"https://api.coinbase.com/v2/prices/{base_asset}-USD/spot",
             headers={"User-Agent": "Mozilla/5.0"}
         )
         with urllib.request.urlopen(req, timeout=4) as res:
@@ -879,7 +933,7 @@ async def sync_live_market_price(symbol: str = Query(default=settings.SYMBOL)) -
     if not live_price:
         try:
             req = urllib.request.Request(
-                "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT",
+                f"https://api.binance.com/api/v3/ticker/price?symbol={base_asset}USDT",
                 headers={"User-Agent": "Mozilla/5.0"}
             )
             with urllib.request.urlopen(req, timeout=4) as res:
@@ -940,11 +994,11 @@ async def override_market_price(payload: PriceOverrideRequest) -> Dict[str, Any]
         volume=1.0,
     )
     if store and hasattr(store, "save_candles"):
-        store.save_candles(settings.SYMBOL, payload.timeframe or "1m", [candle])
+        store.save_candles(get_active_symbol(), payload.timeframe or "1m", [candle])
 
     await ws_manager.broadcast({
         "type": "price_update",
-        "symbol": settings.SYMBOL,
+        "symbol": get_active_symbol(),
         "price": payload.price,
         "source": "manual_override",
         "ts": now_ts,
@@ -952,7 +1006,7 @@ async def override_market_price(payload: PriceOverrideRequest) -> Dict[str, Any]
     return {
         "status": "ok",
         "price": payload.price,
-        "symbol": settings.SYMBOL,
+        "symbol": get_active_symbol(),
         "ts": now_ts,
     }
 
@@ -1045,10 +1099,10 @@ async def load_local_cache_dataset(
         for i in range(len(df))
     ]
 
-    saved_count = store.save_candles(settings.SYMBOL, timeframe, candles)
+    saved_count = store.save_candles(get_active_symbol(), timeframe, candles)
     await ws_manager.broadcast({
         "type": "candles_updated",
-        "symbol": settings.SYMBOL,
+        "symbol": get_active_symbol(),
         "timeframe": timeframe,
         "count": saved_count
     })
@@ -1062,26 +1116,120 @@ async def load_local_cache_dataset(
 
 @router.get("/mode")
 def get_mode() -> Dict[str, Any]:
-    return {"mode": _current_mode, "execution_mode": "paper", "exchange_orders_enabled": False,
-            "symbol": settings.SYMBOL, "timeframe": settings.TIMEFRAME}
+    return {"mode": _current_mode, "execution_mode": _execution_mode,
+            "exchange_orders_enabled": _execution_mode == "delta_demo",
+            "symbol": get_active_symbol(), "timeframe": settings.TIMEFRAME}
 
 
 @router.post("/mode")
 async def set_mode(payload: ModeRequest) -> Dict[str, Any]:
     global _current_mode
-    if payload.mode not in ("paper", "uploaded", "backtest"):
-        raise HTTPException(status_code=400, detail="Mode must be 'paper' or 'backtest'")
-    target_mode = "uploaded" if payload.mode in ("uploaded", "backtest") else "paper"
+    if payload.mode not in ("paper", "uploaded"):
+        raise HTTPException(status_code=400, detail="Mode must be 'paper' or 'uploaded'")
+    target_mode = "uploaded" if payload.mode == "uploaded" else "paper"
     risk_manager = get_service("risk_manager")
     if target_mode != _current_mode and risk_manager:
         if target_mode == "uploaded" and not risk_manager.is_halted():
-            risk_manager.halt(_BACKTEST_PAUSE_REASON)
-        elif target_mode == "paper" and getattr(risk_manager, "halt_reason", "") == _BACKTEST_PAUSE_REASON:
+            risk_manager.halt(_HISTORY_PAUSE_REASON)
+        elif target_mode == "paper" and getattr(risk_manager, "halt_reason", "") == _HISTORY_PAUSE_REASON:
             risk_manager.resume()
     _current_mode = target_mode
     await ws_manager.broadcast({"type": "mode_changed", "mode": _current_mode})
-    return {"status": "ok", "mode": _current_mode, "execution_mode": "paper",
-            "exchange_orders_enabled": False}
+    return {"status": "ok", "mode": _current_mode, "execution_mode": _execution_mode,
+            "exchange_orders_enabled": _execution_mode == "delta_demo"}
+
+
+@router.get("/execution-mode")
+def get_execution_mode() -> Dict[str, Any]:
+    return {
+        "execution_mode": _execution_mode,
+        "exchange_orders_enabled": _execution_mode == "delta_demo",
+        "demo_mode_configured": settings.DEMO_MODE,
+        "symbol": get_active_symbol(),
+    }
+
+
+@router.post("/execution-mode")
+async def change_execution_mode(payload: ExecutionModeRequest) -> Dict[str, Any]:
+    """Switch between local paper execution and explicitly enabled Delta demo."""
+    if payload.mode not in ("paper", "disabled", "delta_demo"):
+        raise HTTPException(status_code=400, detail="Execution mode must be 'paper' or 'delta_demo'")
+    if _current_mode != "paper":
+        raise HTTPException(status_code=409, detail="Return to Paper Trading mode before changing execution")
+    if _execution_mode_controller is None:
+        raise HTTPException(status_code=503, detail="Execution mode controller is unavailable")
+    try:
+        target_mode = "paper" if payload.mode in ("paper", "disabled") else payload.mode
+        result = _execution_mode_controller(target_mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    set_execution_mode(target_mode)
+    response = {
+        "status": "ok",
+        "execution_mode": target_mode,
+        "exchange_orders_enabled": target_mode == "delta_demo",
+        "symbol": get_active_symbol(),
+        **(result or {}),
+    }
+    await ws_manager.broadcast({"type": "execution_mode_changed", "data": response})
+    return response
+
+
+@router.get("/assets")
+def get_supported_assets() -> Dict[str, Any]:
+    return {"assets": ["BTCUSD", "ETHUSD", "SOLUSD"], "active_symbol": get_active_symbol()}
+
+
+@router.get("/asset")
+def get_active_asset() -> Dict[str, str]:
+    return {"symbol": get_active_symbol()}
+
+
+@router.post("/asset")
+async def change_active_asset(payload: AssetRequest) -> Dict[str, Any]:
+    symbol = _normalize_symbol(payload.symbol)
+    if symbol not in {"BTCUSD", "ETHUSD", "SOLUSD"}:
+        raise HTTPException(status_code=400, detail="Supported markets are BTCUSD, ETHUSD, and SOLUSD")
+    if _current_mode != "paper":
+        raise HTTPException(status_code=409, detail="Switch to Paper Trading mode before changing the market")
+    if _asset_switch_controller is None:
+        raise HTTPException(status_code=503, detail="Market switch controller is unavailable")
+    if symbol == get_active_symbol():
+        return {"status": "ok", "symbol": symbol}
+    try:
+        details = _asset_switch_controller(symbol)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    set_active_symbol(symbol)
+    response = {"status": "ok", "symbol": symbol, **(details or {})}
+    await ws_manager.broadcast({"type": "asset_changed", "data": response})
+    return response
+
+
+@router.get("/fx/usd-inr")
+def get_usd_inr_rate() -> Dict[str, Any]:
+    now = time.time()
+    if _usd_inr_cache["rate"] is None or now - float(_usd_inr_cache["fetched_at"]) > 3600:
+        try:
+            request = urllib.request.Request(
+                "https://api.frankfurter.app/latest?from=USD&to=INR",
+                headers={"User-Agent": "DeltaQuantCore/1.0"},
+            )
+            with urllib.request.urlopen(request, timeout=5) as response:
+                body = json.loads(response.read().decode("utf-8"))
+            rate = float(body["rates"]["INR"])
+            if rate <= 0:
+                raise ValueError("USD/INR rate must be positive")
+            _usd_inr_cache.update(rate=rate, fetched_at=now, date=body.get("date"))
+        except Exception as exc:
+            if _usd_inr_cache["rate"] is None:
+                raise HTTPException(status_code=503, detail="Could not fetch the current USD/INR display rate") from exc
+    return {"base": "USD", "quote": "INR", "rate": _usd_inr_cache["rate"],
+            "date": _usd_inr_cache.get("date"), "cached": now - float(_usd_inr_cache["fetched_at"]) > 60}
 
 
 @router.get("/paper/summary")
@@ -1092,135 +1240,18 @@ def get_paper_summary() -> Dict[str, Any]:
     return executor.summary()
 
 
-def _candle_rows_to_frame(rows: List[Dict[str, Any]]) -> pd.DataFrame:
-    if not rows:
-        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"],
-                            index=pd.DatetimeIndex([], tz="UTC", name="ts"))
-    frame = pd.DataFrame(rows)
-    if "ts" not in frame or not {"open", "high", "low", "close", "volume"}.issubset(frame.columns):
-        raise ValueError("Uploaded candles must have ts, open, high, low, close, and volume fields")
-    ts = pd.to_numeric(frame.pop("ts"), errors="raise")
-    if ts.abs().median() > 1e11:
-        ts = ts / 1000
-    frame.index = pd.to_datetime(ts, unit="s", utc=True)
-    frame.index.name = "ts"
-    frame = frame[["open", "high", "low", "close", "volume"]].apply(pd.to_numeric, errors="raise")
-    return frame[~frame.index.duplicated(keep="last")].sort_index()
-
-
-@router.post("/backtest/run")
-def run_backtest_endpoint(payload: BacktestRequest = Body(default=BacktestRequest())) -> Dict[str, Any]:
-    """Run against uploaded execution/trend candles, or bundled BTC data by default."""
-    from app.strategy.trend import compute_signals, PRODUCTION_PARAMS
-    from backtest.data import load_backtest_data
-    from backtest.engine import run_backtest
-    from backtest.run import RISK_CFG
-    from backtest.metrics import compute_metrics
-
-    execution_tf = payload.execution_timeframe.strip().lower()
-    trend_tf = payload.trend_timeframe.strip().lower()
-    symbol = _normalize_symbol(payload.symbol)
-    uploaded_exec, uploaded_trend = [], []
-    try:
-        uploaded_exec = _read_uploaded_candles(symbol, execution_tf)
-        uploaded_trend = _read_uploaded_candles(symbol, trend_tf)
-        if uploaded_exec or uploaded_trend:
-            if not uploaded_exec or not uploaded_trend:
-                missing = trend_tf if not uploaded_trend else execution_tf
-                raise HTTPException(status_code=400, detail=f"Upload {missing} candles for {symbol} before running this timeframe pair.")
-            df_exec = _candle_rows_to_frame(uploaded_exec)
-            df_trend = _candle_rows_to_frame(uploaded_trend)
-            start = max(df_exec.index.min(), df_trend.index.min())
-            end = min(df_exec.index.max(), df_trend.index.max())
-            df_exec = df_exec.loc[(df_exec.index >= start) & (df_exec.index <= end)]
-            df_trend = df_trend.loc[(df_trend.index >= start) & (df_trend.index <= end)]
-            if len(df_exec) < 100 or len(df_trend) < PRODUCTION_PARAMS.htf_ema + 1:
-                raise HTTPException(status_code=400, detail=f"The shared date range needs at least 100 execution candles and {PRODUCTION_PARAMS.htf_ema + 1} trend candles for indicator warmup.")
-            funding = pd.DataFrame({"rate": []}, index=pd.DatetimeIndex([], tz="UTC"))
-            mark = df_exec[["open", "high", "low", "close", "volume"]]
-            data_source = "uploaded"
-        elif execution_tf == "15m" and trend_tf == "1h":
-            df_exec, df_trend, funding, mark = load_backtest_data()
-            data_source = "bundled"
-        else:
-            raise HTTPException(status_code=400, detail=f"No uploaded {execution_tf} and {trend_tf} candles found for {symbol}. Upload both timeframes first.")
-        from app.strategy.trend import timeframe_delta
-        timeframe_delta(execution_tf)
-        timeframe_delta(trend_tf)
-    except HTTPException:
-        raise
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=400, detail=f"Backtest dataset could not be loaded: {exc}")
-
-    sig_df = compute_signals(df_exec, df_trend, PRODUCTION_PARAMS, htf_timeframe=trend_tf)
-    # Match `python -m backtest.run` risk_managed configuration exactly.
-    cfg = RISK_CFG
-    trades_df, equity_df, state = run_backtest(
-        sig_df, cfg, mark_prices=mark, funding=funding["rate"]
-    )
-    metrics = compute_metrics(trades_df, equity_df, state, benchmark=sig_df["close"])
-    metrics["total_trades"] = int(len(trades_df))
-    metrics["net_profit"] = round(float(state["final_equity"] - state["start_equity"]), 2)
-    metrics["total_funding_pnl"] = round(float(trades_df.get("funding_pnl", pd.Series(dtype=float)).sum()), 2)
-
-    trades_list = []
-    if not trades_df.empty:
-        for _, t in trades_df.iterrows():
-            entry_p = float(t["entry"]) if "entry" in t else 0.0
-            exit_p = float(t["exit"]) if "exit" in t else 0.0
-            pnl_val = float(t["pnl"]) if "pnl" in t else 0.0
-            is_short = str(t.get("side", "")).upper() in ("SELL", "SHORT")
-            raw_pct = ((exit_p - entry_p) / entry_p * 100) if entry_p > 0 else 0.0
-            pnl_pct = round(-raw_pct if is_short else raw_pct, 2)
-
-            trades_list.append({
-                "entry_ts": int(t["entry_ts"].timestamp()) if hasattr(t["entry_ts"], "timestamp") else int(t["entry_ts"]),
-                "exit_ts": int(t["exit_ts"].timestamp()) if hasattr(t["exit_ts"], "timestamp") else int(t["exit_ts"]),
-                "side": str(t.get("side", "BUY")).upper(),
-                "entry": round(entry_p, 2),
-                "exit": round(exit_p, 2),
-                "entry_price": round(entry_p, 2),
-                "exit_price": round(exit_p, 2),
-                "size": round(float(t.get("size", 0.1)), 4),
-                "pnl": round(pnl_val, 2),
-                "funding_pnl": round(float(t.get("funding_pnl", 0.0)), 2),
-                "pnl_pct": pnl_pct,
-                "reason": str(t.get("reason", "Trend following strategy signal")),
-                "exit_reason": str(t.get("exit_reason", "Target reached")),
-            })
-
-    eq_list = []
-    if not equity_df.empty:
-        for idx, row in equity_df.tail(100).iterrows():
-            ts_val = int(idx.timestamp()) if hasattr(idx, "timestamp") else int(idx)
-            eq_list.append({"ts": ts_val, "equity": round(float(row["equity"]), 2)})
-
-    res = {
-        "status": "ok",
-        "metrics": metrics,
-        "trades": trades_list,
-        "equity_curve": eq_list,
-        "bars_analyzed": len(sig_df),
-        "data_source": data_source,
-        "execution_timeframe": execution_tf,
-        "trend_timeframe": trend_tf,
-        "symbol": symbol,
-    }
-    return res
-
-
-@router.get("/backtest/candles")
-def get_backtest_candles(
+@router.get("/history/candles")
+def get_history_candles(
     resolution: str = Query(default="15m"),
     symbol: Optional[str] = None,
     source: Optional[str] = None,
     # A full year of 1m BTC candles is about 526k rows; keep the endpoint able
-    # to return the same uploaded range that the backtest itself analyzes.
+    # to return long uploaded candle histories for chart inspection.
     limit: int = Query(default=72, ge=1, le=1000000),
     before_ts: Optional[int] = None,
     after_ts: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    """Return stored uploaded candles (or bundled defaults) for charting backtests."""
+    """Return uploaded or local candles for the dashboard history chart."""
     from backtest.data import load_backtest_data
 
     sym = _normalize_symbol(symbol)
@@ -1239,9 +1270,9 @@ def get_backtest_candles(
             return []
 
     try:
-        df15, df1h, _, _ = load_backtest_data()
+        df15, df1h, _, _ = load_backtest_data(symbol=sym)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=400, detail=f"Backtest dataset could not be loaded: {exc}")
+        raise HTTPException(status_code=400, detail=f"Local candle history could not be loaded: {exc}")
 
     normalized = resolution.lower()
     frame = df1h if normalized in ("1h", "60", "60m") else df15
@@ -1261,17 +1292,21 @@ def get_strategy_state() -> Dict[str, Any]:
     risk_manager = get_service("risk_manager")
     is_halted = risk_manager.is_halted() if risk_manager else False
 
-    name = strategy.__class__.__name__ if strategy else "TrendFollowingStrategy"
+    name = strategy.__class__.__name__ if strategy else "TrendStrategy"
     params = getattr(strategy, "p", None)
+    execution_timeframe = getattr(strategy, "execution_timeframe", settings.TIMEFRAME)
+    required_timeframes = getattr(strategy, "required_timeframes", (execution_timeframe, settings.HTF_TIMEFRAME))
     return {
         "name": name,
-        "symbol": settings.SYMBOL,
-        "timeframe": settings.TIMEFRAME,
+        "symbol": get_active_symbol(),
+        "timeframe": execution_timeframe,
         "htf_timeframe": settings.HTF_TIMEFRAME,
+        "required_timeframes": list(required_timeframes),
         "status": "halted" if is_halted else "active",
         "description": (
-            "Shared regime strategy: ADX trend-following or RSI/Bollinger mean reversion "
-            f"on BTCUSD {settings.TIMEFRAME}, with {settings.HTF_TIMEFRAME} data alignment"
+            "Asset-specific 15m regime strategy using 1h trend context: EMA cross with ADX "
+            "confirmation in trends and Bollinger/RSI mean reversion in ranging markets, "
+            "with ATR stops and trailing exits."
         ),
         "parameters": params.__dict__ if params else {},
     }
@@ -1380,6 +1415,124 @@ async def resume_trading() -> Dict[str, Any]:
     return response
 
 
+@router.post("/demo/order-check")
+async def submit_single_demo_order_check() -> Dict[str, Any]:
+    """Submit one minimum-size BTCUSD market order to Delta Demo for connectivity validation."""
+    global _demo_order_check_used
+    if _execution_mode != "delta_demo":
+        raise HTTPException(status_code=409, detail="Enable Delta Demo successfully before requesting the test order")
+    if not settings.DEMO_MODE or "testnet" not in settings.DELTA_BASE_URL.lower():
+        raise HTTPException(status_code=403, detail="The one-shot order check is restricted to configured Delta Demo testnet")
+    if _demo_order_check_used:
+        raise HTTPException(status_code=409, detail="The one-shot Delta Demo order check has already been attempted")
+
+    executor = get_service("executor")
+    risk_manager = get_service("risk_manager")
+    store = get_service("store")
+    from app.execution.executor import DeltaExecutor
+    if not isinstance(executor, DeltaExecutor):
+        raise HTTPException(status_code=409, detail="Delta Demo executor is not active")
+
+    # The local trade record makes the one-shot guard survive server restarts.
+    if store and hasattr(store, "get_trades"):
+        try:
+            prior = store.get_trades(limit=1000)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Could not verify prior test-order history: {exc}") from exc
+        if any(row.get("reason") == _DEMO_ORDER_CHECK_REASON for row in prior):
+            _demo_order_check_used = True
+            raise HTTPException(status_code=409, detail="A Delta Demo order check is already recorded; refusing a duplicate")
+
+    client = executor.client
+    symbol = get_active_symbol()
+    try:
+        product = client.get_product_by_symbol(symbol)
+        if not product or not product.get("id"):
+            raise ValueError(f"Delta Demo product metadata is unavailable for {symbol}")
+        product_id = int(product["id"])
+        contract_value = float(product.get("contract_value") or 0)
+        if contract_value <= 0:
+            raise ValueError(f"Delta Demo contract size is invalid for {symbol}")
+
+        # Prefer the dashboard live mark; if this handler runs in a fresh app
+        # context, use the latest 1m testnet candle and reject stale data.
+        live = _live_price_fields(symbol)
+        price = float(live.get("mark_price") or 0)
+        received_ts = float(live.get("price_received_timestamp") or 0)
+        now = int(time.time())
+        age = max(0, now - int(received_ts)) if received_ts else None
+        if price <= 0 or age is None or age > settings.STALE_DATA_SECONDS:
+            latest = client.get_candles(symbol, "1m", limit=2)
+            if not latest:
+                raise ValueError("No current Delta Demo reference price is available")
+            candle = latest[-1]
+            age = max(0, now - int(candle.ts))
+            if candle.close <= 0 or age > 60 + settings.STALE_DATA_SECONDS:
+                raise ValueError(f"Latest Delta Demo 1m candle is stale ({age}s)")
+            price = float(candle.close)
+
+        test_notional = price * contract_value
+        order_cap = min(float(settings.DEMO_MAX_NOTIONAL_USD), 100.0)
+        if test_notional > order_cap:
+            raise ValueError(
+                f"One contract of {symbol} is about ${test_notional:.2f}, above the one-shot ${order_cap:.2f} cap"
+            )
+
+        # Never add exposure on top of an existing market position or order.
+        if client.get_positions(product_id=product_id):
+            raise ValueError(f"Close the existing {symbol} Delta Demo position before the one-shot check")
+        if client.get_open_orders(product_id=product_id):
+            raise ValueError(f"Cancel existing {symbol} Delta Demo orders before the one-shot check")
+        balance = client.get_balance()
+        if not balance:
+            raise ValueError("Delta Demo returned no wallet balance")
+        account = executor.get_account_state()
+        if not executor.account_connected:
+            raise ValueError(executor.last_account_error or "Delta Demo account is not authenticated")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Delta Demo preflight failed; no order sent: {exc}") from exc
+
+    side = "buy"
+    stop = round(price * 0.99, 2)
+    target = round(price * 1.02, 2)
+    signal = Signal(
+        symbol=symbol, side=side, entry_price=price, stop_loss=stop,
+        take_profit=target, reason=_DEMO_ORDER_CHECK_REASON, ts=now,
+    )
+    if not risk_manager:
+        raise HTTPException(status_code=503, detail="Risk manager is unavailable; no order sent")
+    decision = risk_manager.evaluate(signal, account)
+    if not decision.approved:
+        raise HTTPException(status_code=409, detail=f"Risk manager rejected test order; no order sent: {decision.reason}")
+    if decision.size + 1e-12 < contract_value:
+        raise HTTPException(status_code=409, detail="Risk sizing is below one Delta contract; no order sent")
+
+    order = OrderRequest(
+        symbol=symbol, side=side, size=contract_value, entry_price=price,
+        stop_loss=stop, take_profit=target,
+        client_order_id=f"demo-check-{symbol.lower()}-{uuid.uuid4().hex[:8]}",
+        signal_ts=now, reason=_DEMO_ORDER_CHECK_REASON,
+    )
+    _demo_order_check_used = True
+    if store:
+        store.save_signal(signal, decision)
+    result = executor.execute(order)
+    if store:
+        store.save_trade(order, result, reason=_DEMO_ORDER_CHECK_REASON)
+    data = {
+        "symbol": symbol, "side": side, "contracts": 1,
+        "estimated_notional_usd": round(test_notional, 2),
+        "test_order_cap_usd": order_cap, "client_order_id": order.client_order_id,
+        "order": order.model_dump(), "result": result.model_dump(),
+        "exchange_orders_enabled": True,
+    }
+    await ws_manager.broadcast({"type": "demo_order_check", "data": data})
+    if not result.ok:
+        raise HTTPException(status_code=502, detail={"message": "Delta Demo rejected the one-shot order", **data})
+    logger.warning("[api] One-shot Delta Demo test order submitted: %s", result.order_id)
+    return {"status": "submitted", **data}
+
+
 @router.post("/demo/trigger")
 async def trigger_demo_signal(payload: Optional[DemoTriggerRequest] = None) -> Dict[str, Any]:
     """Manually check the paper order pipeline with a fresh market price.
@@ -1421,7 +1574,7 @@ async def trigger_demo_signal(payload: Optional[DemoTriggerRequest] = None) -> D
         tp = round(entry * 0.97, 2)
 
     signal = Signal(
-        symbol=settings.SYMBOL,
+        symbol=get_active_symbol(),
         side=side,
         entry_price=entry,
         stop_loss=sl,

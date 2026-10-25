@@ -64,3 +64,6 @@ class OrderResult(BaseModel):
     order_id: Optional[str] = None
     status: str = ""
     error: Optional[str] = None
+    fill_price: Optional[float] = None
+    filled_at: Optional[int] = None
+    fee: Optional[float] = None

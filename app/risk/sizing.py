@@ -7,6 +7,29 @@ import logging
 
 logger = logging.getLogger("app.risk.sizing")
 
+
+def volatility_adjusted_risk_pct(
+    base_risk_pct: float,
+    atr_value: float,
+    entry_price: float,
+    target_atr_pct: float = 1.0,
+    min_risk_pct: float = 0.25,
+) -> float:
+    """Scale a fixed-fraction risk budget down as ATR volatility rises.
+
+    The base fraction is a hard ceiling: quiet markets never increase risk above
+    the base. Missing volatility data falls back to the configured risk floor.
+    """
+    ceiling = max(0.0, float(base_risk_pct))
+    floor = min(ceiling, max(0.0, float(min_risk_pct)))
+    if entry_price <= 0 or atr_value <= 0 or target_atr_pct <= 0:
+        return floor
+    current_atr_pct = float(atr_value) / float(entry_price) * 100.0
+    if current_atr_pct <= 0:
+        return floor
+    scaled = ceiling * float(target_atr_pct) / current_atr_pct
+    return min(ceiling, max(floor, scaled))
+
 def calculate_position_size(
     equity: float,
     entry_price: float,

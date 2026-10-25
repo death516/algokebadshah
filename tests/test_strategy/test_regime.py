@@ -2,8 +2,12 @@
 import numpy as np
 import pandas as pd
 
-from app.strategy.trend import TrendParams, compute_signals
+from app.strategy.trend import TrendParams, TrendStrategy, compute_signals
 from backtest.engine import BTConfig, run_backtest
+
+REGIME_TEST_PARAMS = TrendParams(
+    entry_mode="regime", adx_trend=25, adx_range=20, rsi_os=30, rsi_ob=70,
+)
 
 
 def _frame(close: np.ndarray, start="2026-01-01") -> pd.DataFrame:
@@ -28,17 +32,37 @@ def _ou(n, mu=100.0, theta=0.06, sigma=2.5, seed=1):
     return x
 
 
+def test_regime_strategy_is_the_default():
+    params = TrendParams()
+    assert params.entry_mode == "regime"
+    assert (params.adx_trend, params.adx_range, params.rsi_os, params.rsi_ob) == (22, 18, 25, 75)
+
+
+def test_live_strategy_switches_to_asset_specific_presets():
+    strategy = TrendStrategy(symbol="BTCUSD")
+    assert strategy.execution_timeframe == "15m"
+    assert (strategy.p.adx_trend, strategy.p.adx_range, strategy.p.rsi_os, strategy.p.rsi_ob) == (22, 18, 25, 75)
+
+    strategy.set_symbol("ETHUSD")
+    assert strategy.symbol == "ETHUSD"
+    assert (strategy.p.adx_trend, strategy.p.adx_range, strategy.p.rsi_os, strategy.p.rsi_ob) == (28, 20, 30, 70)
+
+    strategy.set_symbol("SOLUSD")
+    assert strategy.symbol == "SOLUSD"
+    assert (strategy.p.adx_trend, strategy.p.adx_range, strategy.p.rsi_os, strategy.p.rsi_ob) == (28, 20, 25, 75)
+
+
 def test_trend_regime_emits_trend_leg():
     # Strong drift + noise -> high ADX with repeated EMA re-crosses (trend leg).
     df = _frame(100 + np.cumsum(0.4 + np.random.default_rng(1).normal(0, 2.5, 1500)))
-    sig = compute_signals(df, _htf(df), TrendParams(entry_mode="regime"))
+    sig = compute_signals(df, _htf(df), REGIME_TEST_PARAMS)
     reasons = sig.loc[sig["side"] != "", "reason"]
     assert reasons.str.startswith("TREND").any(), "expected trend-leg signals"
 
 
 def test_ranging_regime_emits_mean_reversion_leg():
     df = _frame(_ou(2000))
-    sig = compute_signals(df, _htf(df), TrendParams(entry_mode="regime"))
+    sig = compute_signals(df, _htf(df), REGIME_TEST_PARAMS)
     reasons = sig.loc[sig["side"] != "", "reason"]
     assert reasons.str.startswith("MR").any(), "expected mean-reversion signals"
 
@@ -49,7 +73,7 @@ def test_trend_leg_trails_mr_leg_takes_fixed_tp():
     trend = 100 + np.cumsum(0.2 + rng.normal(0, 0.4, 800))
     osc = trend[-1] + 8 * np.sin(np.linspace(0, 40 * np.pi, 800)) + rng.normal(0, 0.3, 800)
     df = _frame(np.concatenate([trend, osc]))
-    sig = compute_signals(df, _htf(df), TrendParams(entry_mode="regime"))
+    sig = compute_signals(df, _htf(df), REGIME_TEST_PARAMS)
     trend_rows = sig[sig["reason"].str.startswith("TREND")]
     mr_rows = sig[sig["reason"].str.startswith("MR")]
     assert (trend_rows["trail_mult"] > 0).all() and trend_rows["tp_rr"].isna().all()
@@ -59,7 +83,7 @@ def test_trend_leg_trails_mr_leg_takes_fixed_tp():
 def test_engine_uses_per_signal_exit_over_cfg():
     # A trailing signal must not exit at a fixed TP even when cfg.use_tp is True.
     df = _frame(100 + np.cumsum(0.2 + np.random.default_rng(3).normal(0, 0.4, 600)))
-    sig = compute_signals(df, _htf(df), TrendParams(entry_mode="regime"))
+    sig = compute_signals(df, _htf(df), REGIME_TEST_PARAMS)
     cfg = BTConfig(use_tp=True, rr=2.0, daily_loss_pct=1e9, max_dd_pct=1e9)
     trades, _, _ = run_backtest(sig, cfg)
     # trend trades (trailing) should exit by stop/kill, never by the cfg fixed tp
@@ -71,7 +95,7 @@ def test_engine_uses_per_signal_exit_over_cfg():
 def test_cooldown_resumes_after_kill_switch():
     # Force a kill switch with a tiny DD cap, confirm the breaker can recover.
     df = _frame(100 + np.cumsum(np.random.default_rng(4).normal(0, 1.0, 2000)))
-    sig = compute_signals(df, _htf(df), TrendParams(entry_mode="regime"))
+    sig = compute_signals(df, _htf(df), REGIME_TEST_PARAMS)
     permanent, _, s_perm = run_backtest(sig, BTConfig(max_dd_pct=2.0, dd_cooldown_days=0.0))
     resumable, _, s_res = run_backtest(sig, BTConfig(max_dd_pct=2.0, dd_cooldown_days=1.0))
     # permanent halts once then stops; resumable can trip multiple times

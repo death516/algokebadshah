@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock, patch
+import time
 import pytest
 
 from app.execution.executor import DeltaExecutor
@@ -14,7 +15,11 @@ def test_delta_executor_execute_with_mock_client():
     mock_client.api_key = "test_key"
     mock_client.api_secret = "test_secret"
     mock_client.get_product_id.return_value = 27
-    mock_client.place_order.return_value = {"result": {"id": "delta-ord-100", "state": "FILLED"}}
+    mock_client.get_product_by_symbol.return_value = {"id": 27, "contract_value": "0.001"}
+    mock_client.get_balance.return_value = [{"balance": 10000.0}]
+    mock_client.get_positions.return_value = []
+    mock_client.get_open_orders.return_value = []
+    mock_client.place_order.return_value = {"result": {"id": "delta-ord-100", "state": "closed"}}
 
     executor = DeltaExecutor(client=mock_client)
     order = OrderRequest(
@@ -30,14 +35,13 @@ def test_delta_executor_execute_with_mock_client():
     result = executor.execute(order)
     assert result.ok is True
     assert result.order_id == "delta-ord-100"
-    assert result.status == "FILLED"
+    assert result.status == "CLOSED"
 
     mock_client.place_order.assert_called_once_with(
         product_id=27,
-        size=0.1,
+        size=1,
         side="buy",
-        order_type="limit_order",
-        price=65000.0,
+        order_type="market_order",
         client_order_id="client-test-exec-1",
         stop_loss_price=64000.0,
         take_profit_price=67000.0,
@@ -58,7 +62,7 @@ def test_delta_executor_flatten_all():
     executor.flatten_all()
 
     # Verify cancelled all orders
-    mock_client.cancel_all_orders.assert_called_once()
+    mock_client.cancel_all_orders.assert_called_once_with(product_id=27)
 
     # Verify placed market orders in opposite directions to flatten
     assert mock_client.place_order.call_count == 2
@@ -79,6 +83,7 @@ def test_delta_executor_get_account_state():
     mock_client.api_key = "k"
     mock_client.api_secret = "s"
     mock_client.get_balance.return_value = [{"balance": 15000.0}]
+    mock_client.get_product_by_symbol.return_value = {"id": 27, "contract_value": "0.001"}
     mock_client.get_positions.return_value = [
         Position(symbol="BTCUSD", side="buy", size=0.05, entry_price=65000.0, unrealized_pnl=10.0),
     ]
@@ -129,9 +134,22 @@ def test_engine_runner_tick_pipeline():
     mock_client.api_key = "k"
     mock_client.api_secret = "s"
     mock_client.get_product_id.return_value = 27
-    mock_client.place_order.return_value = {"result": {"id": "delta-run-1", "state": "FILLED"}}
+    mock_client.get_product_by_symbol.return_value = {"id": 27, "contract_value": "0.001"}
+    mock_client.get_balance.return_value = [{"balance": 10000.0}]
+    mock_client.get_positions.return_value = []
+    mock_client.get_open_orders.return_value = []
+    mock_client.place_order.return_value = {"result": {"id": "delta-run-1", "state": "closed"}}
 
     market_data = FakeMarketData()
+    # Keep this integration fixture fresh as the runner now rejects stale
+    # candles before it can submit an order. Preserve the original spacing and
+    # prices while moving each timeframe's last bar to the current closed bar.
+    now = int(time.time())
+    for candles, duration in ((market_data._15m_candles, 900), (market_data._1h_candles, 3600)):
+        if candles:
+            offset = now - duration - candles[-1].ts
+            for candle in candles:
+                candle.ts += offset
     executor = DeltaExecutor(client=mock_client, fallback_equity=10000.0)
     risk_manager = DeltaRiskManager()
     store = FakeStore()

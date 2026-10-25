@@ -7,6 +7,7 @@ Includes SQLiteStore as a fallback.
 import logging
 import time
 import sqlite3
+from contextlib import contextmanager
 from typing import List, Dict, Any, Optional
 
 from app.models import Signal, RiskDecision, OrderRequest, OrderResult
@@ -79,9 +80,32 @@ class PostgresStore(Store):
                         order_id VARCHAR(128),
                         status VARCHAR(64),
                         error TEXT,
-                        ts BIGINT NOT NULL
+                        ts BIGINT NOT NULL,
+                        event_type VARCHAR(16) NOT NULL DEFAULT 'ENTRY',
+                        signal_ts BIGINT,
+                        requested_price DOUBLE PRECISION,
+                        fill_price DOUBLE PRECISION,
+                        fee DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        pnl DOUBLE PRECISION,
+                        route VARCHAR(32) NOT NULL DEFAULT 'PAPER'
                     );
                     CREATE INDEX IF NOT EXISTS idx_trades_ts ON trades(ts DESC);
+                    ALTER TABLE trades ADD COLUMN IF NOT EXISTS event_type VARCHAR(16) NOT NULL DEFAULT 'ENTRY';
+                    ALTER TABLE trades ADD COLUMN IF NOT EXISTS signal_ts BIGINT;
+                    ALTER TABLE trades ADD COLUMN IF NOT EXISTS requested_price DOUBLE PRECISION;
+                    ALTER TABLE trades ADD COLUMN IF NOT EXISTS fill_price DOUBLE PRECISION;
+                    ALTER TABLE trades ADD COLUMN IF NOT EXISTS fee DOUBLE PRECISION NOT NULL DEFAULT 0;
+                    ALTER TABLE trades ADD COLUMN IF NOT EXISTS pnl DOUBLE PRECISION;
+                    ALTER TABLE trades ADD COLUMN IF NOT EXISTS route VARCHAR(32) NOT NULL DEFAULT 'PAPER';
+
+                    CREATE TABLE IF NOT EXISTS signal_execution_claims (
+                        signal_key VARCHAR(255) PRIMARY KEY,
+                        symbol VARCHAR(32) NOT NULL,
+                        timeframe VARCHAR(16) NOT NULL,
+                        signal_ts BIGINT NOT NULL,
+                        side VARCHAR(16) NOT NULL,
+                        created_at BIGINT NOT NULL
+                    );
 
                     CREATE TABLE IF NOT EXISTS equity_snapshots (
                         id SERIAL PRIMARY KEY,
@@ -154,21 +178,63 @@ class PostgresStore(Store):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO trades (symbol, side, size, entry_price, client_order_id, order_id, status, error, reason, ts)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO trades (symbol, side, size, entry_price, requested_price, client_order_id, order_id,
+                                        status, error, reason, ts, event_type, signal_ts, fill_price, fee, route)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'ENTRY', %s, %s, %s, %s)
                     """,
                     (
                         order.symbol,
                         order.side,
                         float(order.size),
+                        float(result.fill_price if result.fill_price is not None else order.entry_price),
                         float(order.entry_price),
                         order.client_order_id,
                         result.order_id,
                         result.status,
                         result.error,
                         trade_reason,
-                        int(time.time()),
+                        int(result.filled_at or time.time()),
+                        int(order.signal_ts) if order.signal_ts is not None else None,
+                        float(result.fill_price) if result.fill_price is not None else None,
+                        float(result.fee or 0.0),
+                        "PAPER" if result.status == "PAPER_FILLED" else "DELTA DEMO",
                     ),
+                )
+            conn.commit()
+
+    def claim_signal_execution(self, symbol: str, timeframe: str, signal_ts: int,
+                               side: str, reason: str, signal_close_ts: int,
+                               retry_until_ts: int) -> bool:
+        signal_key = f"{symbol.upper()}|{timeframe}|{int(signal_ts)}|{side.lower()}"
+        with self._get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT 1 FROM trades WHERE symbol = %s AND side = %s AND reason = %s "
+                    "AND event_type = 'ENTRY' AND ts BETWEEN %s AND %s LIMIT 1",
+                    (symbol, side, reason, int(signal_close_ts), int(retry_until_ts)),
+                )
+                legacy_trade_exists = cur.fetchone() is not None
+                cur.execute(
+                    "INSERT INTO signal_execution_claims (signal_key, symbol, timeframe, signal_ts, side, created_at) "
+                    "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (signal_key) DO NOTHING RETURNING signal_key",
+                    (signal_key, symbol.upper(), timeframe, int(signal_ts), side, int(time.time())),
+                )
+                claimed = cur.fetchone() is not None
+            conn.commit()
+        return bool(claimed and not legacy_trade_exists)
+
+    def save_trade_event(self, event: Dict[str, Any]) -> None:
+        fill_price = float(event.get("fill_price") or 0.0)
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO trades (symbol, side, size, entry_price, requested_price, client_order_id,
+                       order_id, status, error, reason, ts, event_type, signal_ts, fill_price, fee, pnl, route)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL, %s, %s, 'EXIT', %s, %s, %s, %s, 'PAPER')""",
+                    (event["symbol"], event["side"], float(event["size"]), fill_price, fill_price,
+                     event["client_order_id"], event["order_id"], "PAPER_EXIT",
+                     event.get("reason", "Paper exit"), int(event["ts"]), event.get("signal_ts"),
+                     fill_price, float(event.get("fee") or 0.0), float(event.get("pnl") or 0.0)),
                 )
             conn.commit()
 
@@ -369,7 +435,7 @@ class PostgresStore(Store):
     def clear_all(self) -> None:
         with self._get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("TRUNCATE TABLE signals, trades, equity_snapshots, risk_events, logs, candles RESTART IDENTITY")
+                cur.execute("TRUNCATE TABLE signals, trades, signal_execution_claims, equity_snapshots, risk_events, logs, candles RESTART IDENTITY")
             conn.commit()
 
 
@@ -380,14 +446,22 @@ class SQLiteStore(Store):
         self.db_path = db_path
         self._init_db()
 
-    def _get_connection(self) -> sqlite3.Connection:
-        """Create a connection with WAL mode, busy timeout, and row factory."""
+    @contextmanager
+    def _get_connection(self):
+        """Yield a configured SQLite connection and always release its file handle."""
         conn = sqlite3.connect(self.db_path, timeout=10.0)
-        conn.execute("PRAGMA journal_mode = WAL;")
-        conn.execute("PRAGMA busy_timeout = 5000;")
-        conn.execute("PRAGMA synchronous = NORMAL;")
-        conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            conn.execute("PRAGMA journal_mode = WAL;")
+            conn.execute("PRAGMA busy_timeout = 5000;")
+            conn.execute("PRAGMA synchronous = NORMAL;")
+            conn.row_factory = sqlite3.Row
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def _init_db(self) -> None:
         """Initialize SQLite tables and performance indexes."""
@@ -419,10 +493,21 @@ class SQLiteStore(Store):
                     order_id TEXT,
                     status TEXT,
                     error TEXT,
-                    ts INTEGER NOT NULL
+                    ts INTEGER NOT NULL,
+                    event_type TEXT NOT NULL DEFAULT 'ENTRY',
+                    signal_ts INTEGER,
+                    requested_price REAL,
+                    fill_price REAL,
+                    fee REAL NOT NULL DEFAULT 0,
+                    pnl REAL,
+                    route TEXT NOT NULL DEFAULT 'PAPER'
                 );
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_ts ON trades(ts DESC);")
+            conn.execute("""CREATE TABLE IF NOT EXISTS signal_execution_claims (
+                signal_key TEXT PRIMARY KEY, symbol TEXT NOT NULL, timeframe TEXT NOT NULL,
+                signal_ts INTEGER NOT NULL, side TEXT NOT NULL, created_at INTEGER NOT NULL
+            );""")
 
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS equity_snapshots (
@@ -474,6 +559,16 @@ class SQLiteStore(Store):
                 conn.execute("ALTER TABLE trades ADD COLUMN reason TEXT;")
             except Exception:
                 pass
+            for column, definition in (
+                ("event_type", "TEXT NOT NULL DEFAULT 'ENTRY'"),
+                ("signal_ts", "INTEGER"), ("requested_price", "REAL"), ("fill_price", "REAL"),
+                ("fee", "REAL NOT NULL DEFAULT 0"), ("pnl", "REAL"),
+                ("route", "TEXT NOT NULL DEFAULT 'PAPER'"),
+            ):
+                try:
+                    conn.execute(f"ALTER TABLE trades ADD COLUMN {column} {definition};")
+                except sqlite3.OperationalError:
+                    pass
             conn.commit()
 
     def save_signal(self, signal: Signal, decision: RiskDecision) -> None:
@@ -502,21 +597,60 @@ class SQLiteStore(Store):
         with self._get_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO trades (symbol, side, size, entry_price, client_order_id, order_id, status, error, reason, ts)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO trades (symbol, side, size, entry_price, requested_price, client_order_id, order_id,
+                                    status, error, reason, ts, event_type, signal_ts, fill_price, fee, route)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ENTRY', ?, ?, ?, ?)
                 """,
                 (
                     order.symbol,
                     order.side,
                     float(order.size),
+                    float(result.fill_price if result.fill_price is not None else order.entry_price),
                     float(order.entry_price),
                     order.client_order_id,
                     result.order_id,
                     result.status,
                     result.error,
                     trade_reason,
-                    int(time.time()),
+                    int(result.filled_at or time.time()),
+                    int(order.signal_ts) if order.signal_ts is not None else None,
+                    float(result.fill_price) if result.fill_price is not None else None,
+                    float(result.fee or 0.0),
+                    "PAPER" if result.status == "PAPER_FILLED" else "DELTA DEMO",
                 ),
+            )
+            conn.commit()
+
+    def claim_signal_execution(self, symbol: str, timeframe: str, signal_ts: int,
+                               side: str, reason: str, signal_close_ts: int,
+                               retry_until_ts: int) -> bool:
+        signal_key = f"{symbol.upper()}|{timeframe}|{int(signal_ts)}|{side.lower()}"
+        with self._get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            legacy_trade = conn.execute(
+                "SELECT 1 FROM trades WHERE symbol = ? AND side = ? AND reason = ? "
+                "AND event_type = 'ENTRY' AND ts BETWEEN ? AND ? LIMIT 1",
+                (symbol, side, reason, int(signal_close_ts), int(retry_until_ts)),
+            ).fetchone()
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO signal_execution_claims (signal_key, symbol, timeframe, signal_ts, side, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (signal_key, symbol.upper(), timeframe, int(signal_ts), side, int(time.time())),
+            )
+            conn.commit()
+            return bool(cur.rowcount == 1 and legacy_trade is None)
+
+    def save_trade_event(self, event: Dict[str, Any]) -> None:
+        fill_price = float(event.get("fill_price") or 0.0)
+        with self._get_connection() as conn:
+            conn.execute(
+                """INSERT INTO trades (symbol, side, size, entry_price, requested_price, client_order_id,
+                   order_id, status, error, reason, ts, event_type, signal_ts, fill_price, fee, pnl, route)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 'EXIT', ?, ?, ?, ?, 'PAPER')""",
+                (event["symbol"], event["side"], float(event["size"]), fill_price, fill_price,
+                 event["client_order_id"], event["order_id"], "PAPER_EXIT",
+                 event.get("reason", "Paper exit"), int(event["ts"]), event.get("signal_ts"),
+                 fill_price, float(event.get("fee") or 0.0), float(event.get("pnl") or 0.0)),
             )
             conn.commit()
 
@@ -687,6 +821,7 @@ class SQLiteStore(Store):
         with self._get_connection() as conn:
             conn.execute("DELETE FROM signals;")
             conn.execute("DELETE FROM trades;")
+            conn.execute("DELETE FROM signal_execution_claims;")
             conn.execute("DELETE FROM equity_snapshots;")
             conn.execute("DELETE FROM risk_events;")
             conn.execute("DELETE FROM logs;")

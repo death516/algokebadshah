@@ -8,7 +8,7 @@ Features:
 - Real-time `generate_signal` for the live trading engine loop.
 - Pure functions: no network, no hidden state.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional, List
 
 import numpy as np
@@ -21,7 +21,7 @@ from app.strategy.base import BaseStrategy
 
 @dataclass(frozen=True)
 class TrendParams:
-    entry_mode: str = "ema_cross"   # "ema_cross" | "breakout" | "pullback" | "regime"
+    entry_mode: str = "regime"      # production default; other modes are research baselines
     ema_fast: int = 20
     ema_slow: int = 50
     adx_period: int = 14
@@ -34,11 +34,11 @@ class TrendParams:
     use_htf_filter: bool = True
 
     # --- regime switch (entry_mode="regime") ---
-    adx_trend: float = 25.0          # ADX >= this -> trending -> trend-follow
-    adx_range: float = 20.0          # ADX <  this -> ranging  -> mean-revert
+    adx_trend: float = 22.0          # ADX >= this -> trending -> trend-follow (BTC)
+    adx_range: float = 18.0          # ADX <  this -> ranging  -> mean-revert (BTC)
     rsi_period: int = 14
-    rsi_os: float = 30.0             # oversold -> fade long
-    rsi_ob: float = 70.0             # overbought -> fade short
+    rsi_os: float = 25.0             # oversold -> fade long (BTC)
+    rsi_ob: float = 75.0             # overbought -> fade short (BTC)
     bb_period: int = 20
     bb_mult: float = 2.0
     # per-regime exit plans (ATR multiples; tp_rr NaN = trail out)
@@ -56,6 +56,30 @@ PRODUCTION_PARAMS = TrendParams(
     trend_stop_mult=2.0, trend_trail_mult=4.0,
     mr_stop_mult=1.5, mr_tp_rr=1.0,
 )
+
+# Asset-specific presets selected from the 2025-10-25 through 2026-10-25
+# 15m/1h parameter sweep. BTC retains the original production configuration.
+ASSET_PRODUCTION_PARAMS = {
+    "BTCUSD": PRODUCTION_PARAMS,
+    "ETHUSD": replace(
+        PRODUCTION_PARAMS,
+        adx_trend=28, adx_range=20, rsi_os=30, rsi_ob=70,
+        trend_trail_mult=4.0, mr_tp_rr=1.0,
+    ),
+    "SOLUSD": replace(
+        PRODUCTION_PARAMS,
+        adx_trend=28, adx_range=20, rsi_os=25, rsi_ob=75,
+        trend_trail_mult=4.0, mr_tp_rr=1.0,
+    ),
+}
+
+
+def production_params_for(symbol: str) -> TrendParams:
+    """Return the backtested production preset for a supported USD market."""
+    normalized = str(symbol or "BTCUSD").upper().replace("/", "").replace("-", "")
+    if not normalized.endswith("USD"):
+        normalized += "USD"
+    return ASSET_PRODUCTION_PARAMS.get(normalized, PRODUCTION_PARAMS)
 
 
 OHLCV = ["open", "high", "low", "close", "volume"]
@@ -147,7 +171,8 @@ def compute_signals(df15: pd.DataFrame, df1h: pd.DataFrame, p: TrendParams = Tre
         t_long = trending & (fast > slow) & (fast.shift(1) <= slow.shift(1))
         t_short = trending & (fast < slow) & (fast.shift(1) >= slow.shift(1))
         _apply(t_long, t_short, p.trend_stop_mult, np.nan, p.trend_trail_mult, "TREND")
-        # mean-reversion leg (fade band extremes when oversold/overbought)
+        # Match the ALGO COMPETITION strategy: fade an outer Bollinger band
+        # when RSI confirms an extreme during the low-ADX ranging regime.
         mr_long = ranging & (df["close"] < df["bb_lo"]) & (df["rsi"] < p.rsi_os)
         mr_short = ranging & (df["close"] > df["bb_up"]) & (df["rsi"] > p.rsi_ob)
         _apply(mr_long, mr_short, p.mr_stop_mult, p.mr_tp_rr, 0.0, "MR")
@@ -189,12 +214,20 @@ def compute_signals(df15: pd.DataFrame, df1h: pd.DataFrame, p: TrendParams = Tre
 class TrendStrategy(BaseStrategy):
     """Implements the Strategy Protocol / BaseStrategy for production execution."""
 
-    def __init__(self, symbol: str = "BTCUSD", params: TrendParams = TrendParams(),
+    execution_timeframe = "15m"
+
+    def __init__(self, symbol: str = "BTCUSD", params: Optional[TrendParams] = None,
                  htf_timeframe: str = "1h"):
         self.symbol = symbol
-        self.p = params
+        self.p = params or production_params_for(symbol)
         self.htf_timeframe = htf_timeframe
-        self._min_bars = max(params.ema_slow, params.adx_period) + 5
+        self._min_bars = max(self.p.ema_slow, self.p.adx_period) + 5
+
+    def set_symbol(self, symbol: str) -> None:
+        """Select the matching production preset when the dashboard changes market."""
+        self.symbol = str(symbol).upper()
+        self.p = production_params_for(self.symbol)
+        self._min_bars = max(self.p.ema_slow, self.p.adx_period) + 5
 
     def generate_signal(self, candles: List[Candle], htf_candles: List[Candle]) -> Optional[Signal]:
         if len(candles) < self._min_bars or len(htf_candles) < self.p.htf_ema + 1:

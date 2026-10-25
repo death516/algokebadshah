@@ -18,16 +18,18 @@ class Settings(BaseSettings):
     DELTA_API_KEY: str = ""
     DELTA_API_SECRET: str = ""
     SYMBOL: str = "BTCUSD"
-    TIMEFRAME: str = "1m"
+    TIMEFRAME: str = "15m"
     HTF_TIMEFRAME: str = "1h"
     RISK_PER_TRADE_PCT: float = 1.0
-    MAX_LEVERAGE: int = 5
+    MAX_LEVERAGE: int = 3
     MAX_OPEN_POSITIONS: int = 1
     DAILY_LOSS_LIMIT_PCT: float = 3.0
     MAX_DRAWDOWN_PCT: float = 10.0
     MAX_NOTIONAL_USD: float = 50000.0
     STALE_DATA_SECONDS: int = 120
     DEMO_MODE: bool = False
+    # Hard per-order notional ceiling for explicitly enabled Delta demo trading.
+    DEMO_MAX_NOTIONAL_USD: float = 100.0
     PAPER_START_EQUITY: float = 100000.0
     PAPER_FEE_RATE: float = 0.0003
     PAPER_SLIPPAGE_BPS: float = 2.0

@@ -11,7 +11,8 @@ from app.fakes import FakeMarketData
 from app.execution.paper import PaperExecutor
 from app.storage.store import get_default_store, StoreLoggingHandler
 from app.risk.manager import DeltaRiskManager
-from app.api.routes import (router as api_router, set_services, ws_manager,
+from app.api.routes import (router as api_router, set_services, set_execution_mode_controller,
+                            set_asset_switch_controller, set_active_symbol, set_execution_mode, ws_manager,
                             set_live_market_price, set_live_feed_connected)
 
 # Setup logging per working rules: [module] message
@@ -21,39 +22,51 @@ logging.basicConfig(
 )
 logger = logging.getLogger("app.main")
 
-from app.strategy.trend import TrendStrategy, PRODUCTION_PARAMS
+from app.strategy.trend import TrendStrategy
 from app.engine.runner import EngineRunner
 from app.exchange.client import DeltaClient, DeltaMarketData
 from app.exchange.ws import DeltaWebSocket
 
-# Global services: public Delta candle feed with simulated paper execution.
+# Global services: public Delta market data with local paper fills by default.
 store = get_default_store()
 delta_client = DeltaClient()
 market_data_client = DeltaClient(base_url=settings.DELTA_MARKET_DATA_BASE_URL)
+
+
+def _persist_paper_exit(event):
+    store.save_trade_event(event)
+
+
 executor = PaperExecutor(
     initial_equity=settings.PAPER_START_EQUITY,
     fee_rate=settings.PAPER_FEE_RATE,
     slippage_bps=settings.PAPER_SLIPPAGE_BPS,
+    on_trade_event=_persist_paper_exit,
 )
+paper_executor = executor
+active_executor = executor
 risk_manager = DeltaRiskManager(flatten_callback=executor.flatten_all,
-                                sizing_mode="anti_martingale")
+                                sizing_mode="kelly")
+paper_risk_manager = risk_manager
+active_risk_manager = risk_manager
 executor.on_trade_closed = risk_manager.record_trade_result
 market_data = DeltaMarketData(client=market_data_client, store=store)
-strategy = TrendStrategy(symbol=settings.SYMBOL, params=PRODUCTION_PARAMS,
-                         htf_timeframe=settings.HTF_TIMEFRAME)
+strategy = TrendStrategy(symbol=settings.SYMBOL, htf_timeframe=settings.HTF_TIMEFRAME)
+active_symbol = settings.SYMBOL
 
 def seed_initial_candles(target_store):
     """Seed current public Bitcoin data or local cache into the database."""
     try:
         # First, seed candles from the configured public market-data environment.
         try:
-            live_candles = market_data_client.get_candles(settings.SYMBOL, "15m", limit=100)
+            live_candles = market_data_client.get_candles(settings.SYMBOL, "5m", limit=100)
             if live_candles:
-                target_store.save_candles(settings.SYMBOL, "15m", live_candles)
-                logger.info("[storage] Seeded %d live 15m candles directly from Delta Exchange into database.", len(live_candles))
-                live_1h = market_data_client.get_candles(settings.SYMBOL, "1h", limit=50)
-                if live_1h:
-                    target_store.save_candles(settings.SYMBOL, "1h", live_1h)
+                target_store.save_candles(settings.SYMBOL, "5m", live_candles)
+                logger.info("[storage] Seeded %d live 5m candles from Delta Exchange.", len(live_candles))
+                for resolution, count in (("15m", 100), ("1h", 100)):
+                    history = market_data_client.get_candles(settings.SYMBOL, resolution, limit=count)
+                    if history:
+                        target_store.save_candles(settings.SYMBOL, resolution, history)
                 return
         except Exception as live_err:
             logger.warning("[storage] Could not pull initial live candles from Delta Exchange: %s", live_err)
@@ -116,14 +129,16 @@ runner = EngineRunner(
     market_data=market_data,
     store=store,
 )
+runner.execution_enabled = True
 
 
 def _on_public_ticker(data):
     set_live_market_price(data)
     mark = data.get("mark_price") or data.get("last_price")
     if mark:
-        executor.update_price(float(mark), int(data.get("received_timestamp", time.time())))
-        risk_manager.enforce_account_limits(executor.get_account_state())
+        if active_executor is paper_executor and str(data.get("symbol", "")).upper() == runner.symbol.upper():
+            active_executor.update_price(float(mark), int(data.get("received_timestamp", time.time())))
+            active_risk_manager.enforce_account_limits(active_executor.get_account_state())
     try:
         asyncio.get_running_loop().create_task(ws_manager.broadcast({"type": "market_price", "data": data}))
     except RuntimeError:
@@ -134,7 +149,8 @@ def _on_public_feed_connection(connected):
     set_live_feed_connected(connected)
 
 
-price_feed = DeltaWebSocket(on_ticker_callback=_on_public_ticker,
+price_feed = DeltaWebSocket(symbol=settings.SYMBOL, symbols=["BTCUSD", "ETHUSD", "SOLUSD"],
+                            on_ticker_callback=_on_public_ticker,
                             on_connection_callback=_on_public_feed_connection)
 
 def get_live_runner() -> EngineRunner:
@@ -144,8 +160,8 @@ def get_live_runner() -> EngineRunner:
 
     client = DeltaClient()
     live_market_data = DeltaMarketData(client=client)
-    live_executor = DeltaExecutor(client=client, symbol=settings.SYMBOL)
-    live_risk = DeltaRiskManager(flatten_callback=live_executor.flatten_all)
+    live_executor = DeltaExecutor(client=client, symbol=active_symbol)
+    live_risk = DeltaRiskManager(flatten_callback=live_executor.flatten_all, sizing_mode="kelly")
     return EngineRunner(
         strategy=strategy,
         risk_manager=live_risk,
@@ -153,6 +169,119 @@ def get_live_runner() -> EngineRunner:
         market_data=live_market_data,
         store=store,
     )
+
+
+_demo_client = None
+_demo_executor = None
+_demo_risk_manager = None
+
+
+def _switch_active_asset(symbol: str):
+    """Switch the engine and dashboard market only when flat and order-free."""
+    global active_symbol
+    symbol = symbol.upper()
+    if symbol not in {"BTCUSD", "ETHUSD", "SOLUSD"}:
+        raise ValueError("Supported markets are BTCUSD, ETHUSD, and SOLUSD")
+
+    if active_executor is paper_executor:
+        if paper_executor.positions or paper_executor.get_open_orders():
+            raise RuntimeError("Close the paper position and its orders before switching markets")
+    elif _demo_client is not None:
+        try:
+            positions = _demo_client.get_positions()
+            orders = _demo_client.get_open_orders()
+        except Exception as exc:
+            raise RuntimeError("Could not verify Delta demo exposure; remain on the current market") from exc
+        if positions or orders:
+            raise RuntimeError("Close all Delta demo positions and cancel open orders before switching markets")
+        product = _demo_client.get_product_by_symbol(symbol)
+        if not product or not product.get("id") or float(product.get("contract_value") or 0) <= 0:
+            raise ValueError(f"Delta demo metadata is unavailable for {symbol}")
+        _demo_executor.symbol = symbol
+
+    active_symbol = symbol
+    runner.symbol = symbol
+    strategy.set_symbol(symbol)
+    set_active_symbol(symbol)
+    logger.info("[market] Switched active strategy and dashboard market to %s", symbol)
+    return {"symbol": symbol}
+
+
+def _switch_execution_mode(mode: str):
+    """Activate the explicitly configured Delta demo account, never production."""
+    global active_executor, active_risk_manager, _demo_client, _demo_executor, _demo_risk_manager
+    global executor, risk_manager
+
+    if mode in {"paper", "disabled"}:
+        if _demo_executor is not None:
+            try:
+                positions = _demo_client.get_positions()
+                orders = _demo_client.get_open_orders()
+            except Exception as exc:
+                raise RuntimeError("Could not verify Delta demo exposure; remain in demo mode until the account can be checked") from exc
+            if positions or orders:
+                raise RuntimeError("Close Delta demo positions and cancel its open orders before disabling execution")
+        active_executor = paper_executor
+        active_risk_manager = paper_risk_manager
+        executor = paper_executor
+        risk_manager = paper_risk_manager
+        runner.executor = paper_executor
+        runner.risk_manager = paper_risk_manager
+        runner.execution_enabled = True
+        set_services(executor=paper_executor, risk_manager=paper_risk_manager)
+        logger.info("[execution] Paper mode active. Approved strategy signals will create simulated fills.")
+        return {"exchange": "paper simulation", "symbol": active_symbol,
+                "orders_enabled": False, "paper_trading_enabled": True}
+
+    if mode != "delta_demo":
+        raise ValueError("Unsupported execution mode")
+    if not settings.DEMO_MODE:
+        raise ValueError("Demo trading is disabled. Set DEMO_MODE=true in .env and restart the server.")
+    if "testnet" not in settings.DELTA_BASE_URL.lower():
+        raise ValueError("Refusing demo orders because DELTA_BASE_URL is not a testnet URL")
+    if not settings.DELTA_API_KEY or not settings.DELTA_API_SECRET:
+        raise ValueError("Delta demo API key and secret are required in .env")
+
+    from app.execution.executor import DeltaExecutor
+    if _demo_executor is None:
+        _demo_client = DeltaClient()
+        _demo_executor = DeltaExecutor(
+            client=_demo_client,
+            symbol=active_symbol,
+            fallback_equity=settings.PAPER_START_EQUITY,
+            max_notional_usd=settings.DEMO_MAX_NOTIONAL_USD,
+        )
+        _demo_risk_manager = DeltaRiskManager(flatten_callback=_demo_executor.flatten_all,
+                                              sizing_mode="kelly")
+
+    # Verify credentials, product metadata, and demo account connectivity before
+    # routing the autonomous strategy into exchange orders.
+    try:
+        product = _demo_client.get_product_by_symbol(active_symbol)
+        if not product or not product.get("id") or float(product.get("contract_value") or 0) <= 0:
+            raise ValueError(f"Delta testnet product metadata is invalid for {active_symbol}")
+        balance = _demo_client.get_balance()
+        if not balance:
+            raise ValueError("Delta demo account balance could not be verified")
+    except Exception as exc:
+        if isinstance(exc, ValueError):
+            raise
+        raise ValueError(f"Could not verify the Delta demo account: {exc}") from exc
+
+    active_executor = _demo_executor
+    active_risk_manager = _demo_risk_manager
+    executor = active_executor
+    risk_manager = active_risk_manager
+    runner.executor = active_executor
+    runner.risk_manager = active_risk_manager
+    runner.execution_enabled = True
+    set_services(executor=active_executor, risk_manager=active_risk_manager)
+    logger.warning(
+        "[execution] Delta DEMO TESTNET enabled for %s (per-order notional cap: $%.2f).",
+        active_symbol, settings.DEMO_MAX_NOTIONAL_USD,
+    )
+    return {"exchange": "Delta demo testnet", "symbol": active_symbol,
+            "max_order_notional_usd": settings.DEMO_MAX_NOTIONAL_USD}
 
 # Attach SQLite/Postgres Store logging handler
 store_logging_handler = StoreLoggingHandler(store=store, level=logging.INFO)
@@ -166,11 +295,13 @@ set_services(
     market_data=market_data,
     strategy=strategy,
 )
+set_execution_mode_controller(_switch_execution_mode)
+set_asset_switch_controller(_switch_active_asset)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting up Algo Trading Bot...")
-    logger.info("Target Symbol: %s, Timeframe: %s", settings.SYMBOL, settings.TIMEFRAME)
+    logger.info("Target Symbol: %s, Timeframe: %s", active_symbol, settings.TIMEFRAME)
     logger.info("Execution API URL: %s", settings.DELTA_BASE_URL)
     logger.info("Public market-data URL: %s", settings.DELTA_MARKET_DATA_BASE_URL)
     logger.info("Active Storage: %s", store.__class__.__name__)
@@ -192,7 +323,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Delta Exchange Algo Trading Bot",
-    description="Algorithmic paper trading dashboard and historical strategy analysis",
+    description="Delta demo trading dashboard with live market data and historical analysis",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -220,7 +351,7 @@ def root(request: Request):
     return {
         "name": "Delta Exchange Algo Trader",
         "status": "halted" if risk_manager.is_halted() else "running",
-        "symbol": settings.SYMBOL,
+        "symbol": active_symbol,
         "demo_mode": settings.DEMO_MODE,
         "database": getattr(store, "__class__", type(store)).__name__
     }

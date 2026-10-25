@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import Optional, Callable, Dict, Any
+from typing import Optional, Callable, Dict, Any, List
 
 try:
     import websockets
@@ -27,6 +27,7 @@ class DeltaWebSocket:
         api_key: Optional[str] = None,
         api_secret: Optional[str] = None,
         symbol: Optional[str] = None,
+        symbols: Optional[List[str]] = None,
         on_ticker_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         on_connection_callback: Optional[Callable[[bool], None]] = None,
     ):
@@ -34,6 +35,7 @@ class DeltaWebSocket:
         self.api_key = api_key or settings.DELTA_API_KEY
         self.api_secret = api_secret or settings.DELTA_API_SECRET
         self.symbol = symbol or settings.SYMBOL
+        self.symbols = list(dict.fromkeys((symbols or [self.symbol])))
         self.on_ticker_callback = on_ticker_callback
         self.on_connection_callback = on_connection_callback
 
@@ -70,11 +72,11 @@ class DeltaWebSocket:
                             "channels": [
                                 {
                                     "name": "ticker",
-                                    "symbols": [self.symbol]
+                                    "symbols": self.symbols
                                 },
                                 {
                                     "name": "mark_price",
-                                    "symbols": [f"MARK:{self.symbol}"]
+                                    "symbols": [f"MARK:{item}" for item in self.symbols]
                                 }
                             ]
                         }
@@ -109,25 +111,59 @@ class DeltaWebSocket:
             raw_price = payload.get("p", payload.get("mark_price"))
             if raw_price is not None:
                 source_ts = payload.get("ts", msg.get("ts", 0))
-                self._publish_price(mark_price=raw_price, source_ts=source_ts)
+                raw_symbol = (payload.get("sy") or payload.get("symbol") or payload.get("s")
+                              or msg.get("sy") or msg.get("symbol"))
+                symbol = self._normalize_symbol(raw_symbol)
+                # With multiple subscribed markets, never guess which market a
+                # symbol-less mark belongs to: that can show ETH's price as BTC.
+                if not symbol and len(self.symbols) == 1:
+                    symbol = self._normalize_symbol(self.symbols[0])
+                if symbol not in self.symbols:
+                    return
+                self._publish_price(mark_price=raw_price, source_ts=source_ts, symbol=symbol)
         elif msg_type in ("ticker", "v2/ticker"):
             payload = msg.get("data") if isinstance(msg.get("data"), dict) else msg
             if isinstance(payload.get("d"), list):
-                payload = next((x for x in payload["d"] if x.get("s") == self.symbol), {})
+                for item in payload["d"]:
+                    symbol = self._normalize_symbol(item.get("sy") or item.get("s") or item.get("symbol"))
+                    if symbol in self.symbols:
+                        self._publish_ticker_payload(item, msg, symbol)
+                return
             elif isinstance(payload.get("d"), dict):
                 payload = payload["d"]
+            raw_symbol = (payload.get("sy") or payload.get("s") or payload.get("symbol")
+                          or msg.get("sy") or msg.get("symbol"))
+            symbol = self._normalize_symbol(raw_symbol)
+            if not symbol and len(self.symbols) == 1:
+                symbol = self._normalize_symbol(self.symbols[0])
+            if symbol not in self.symbols:
+                return
             mark = payload.get("m", payload.get("mark_price"))
             spot = payload.get("sp", payload.get("spot_price", msg.get("sp")))
             last = payload.get("c", payload.get("close", payload.get("last_price")))
             if mark is not None or spot is not None or last is not None:
                 self._publish_price(mark_price=mark, spot_price=spot, last_price=last,
-                                    source_ts=msg.get("ts", payload.get("ts", 0)))
+                                    source_ts=msg.get("ts", payload.get("ts", 0)), symbol=symbol)
         elif msg_type == "pong":
             pass
         elif msg_type == "subscriptions":
             logger.info("[exchange.ws] Subscription confirmed: %s", msg.get("channels"))
 
-    def _publish_price(self, mark_price=None, spot_price=None, last_price=None, source_ts=0) -> None:
+    def _publish_ticker_payload(self, payload: Dict[str, Any], msg: Dict[str, Any], symbol: str) -> None:
+        mark = payload.get("m", payload.get("mark_price"))
+        spot = payload.get("sp", payload.get("spot_price", msg.get("sp")))
+        last = payload.get("c", payload.get("close", payload.get("last_price")))
+        if mark is not None or spot is not None or last is not None:
+            self._publish_price(mark_price=mark, spot_price=spot, last_price=last,
+                                source_ts=msg.get("ts", payload.get("ts", 0)), symbol=symbol)
+
+    @staticmethod
+    def _normalize_symbol(symbol: Optional[str]) -> str:
+        """Normalize Delta feed symbols such as MARK:BTCUSD to BTCUSD."""
+        return str(symbol or "").upper().replace("MARK:", "").strip()
+
+    def _publish_price(self, mark_price=None, spot_price=None, last_price=None, source_ts=0,
+                       symbol: Optional[str] = None) -> None:
         received_ts = time.time()
         try:
             # Delta timestamps are in microseconds; accept seconds for older payloads.
@@ -136,7 +172,7 @@ class DeltaWebSocket:
                 source_ts /= 1_000_000
         except (TypeError, ValueError):
             source_ts = 0
-        data = {"symbol": self.symbol, "source": "Delta Exchange Testnet",
+        data = {"symbol": str(symbol or self.symbol).replace("MARK:", "").upper(), "source": "Delta Exchange Testnet",
                 "received_timestamp": received_ts, "source_timestamp": source_ts or received_ts}
         for key, value in (("mark_price", mark_price), ("spot_price", spot_price), ("last_price", last_price)):
             if value is not None:

@@ -185,20 +185,26 @@
       </button>
       <div class="h-4 w-px bg-[#1f2937]"></div>
       <div class="flex items-center gap-1.5 font-mono-num text-xs">
-        <span class="font-bold text-white bg-[#161f30] px-2 py-0.5 rounded border border-[#1f2937]" id="headerSymbol">BTCUSD</span>
-        <span class="text-[11px] text-slate-400 font-medium">1m / 1h Paper Regime</span>
-        <span class="text-[10px] text-emerald-400/90 bg-emerald-400/10 border border-emerald-400/20 px-1.5 py-0.5 rounded font-semibold uppercase" id="headerDbBadge" title="Simulated fills only; exchange order submission is disabled">Paper • Simulated</span>
+        <select id="activeAssetSelect" onchange="switchActiveAsset(this.value)" class="font-bold text-white bg-[#161f30] px-2 py-1 rounded border border-[#1f2937] cursor-pointer" aria-label="Market symbol">
+          <option value="BTCUSD">BTCUSD</option><option value="ETHUSD">ETHUSD</option><option value="SOLUSD">SOLUSD</option>
+        </select>
+        <button id="currencyToggleBtn" onclick="toggleDisplayCurrency()" class="font-bold text-cyan-300 bg-[#161f30] px-2 py-1 rounded border border-cyan-500/40 cursor-pointer" title="Switch displayed values between USD and INR">USD</button>
+        <span class="text-[11px] text-slate-400 font-medium">1m / 1h Regime</span>
+        <span class="text-[10px] text-amber-300 bg-amber-400/10 border border-amber-400/20 px-1.5 py-0.5 rounded font-semibold uppercase" id="headerDbBadge" title="Strategy orders are simulated locally">Paper Mode</span>
       </div>
 
       <div class="h-4 w-px bg-[#1f2937]"></div>
-      <!-- Paper execution uses live market prices and simulated fills. -->
+      <!-- Live chart view and historical candle inspection. -->
       <div class="flex items-center bg-[#0b0f17] p-0.5 rounded border border-[#1f2937] text-xs font-mono-num">
-        <button id="modePaperBtn" onclick="switchSystemMode('paper')" class="px-2.5 py-0.5 rounded font-bold bg-[#1f2937] text-emerald-400 flex items-center gap-1 cursor-pointer transition" title="Simulated orders only. No exchange orders are sent.">
+        <button id="modePaperBtn" onclick="switchSystemMode('paper')" class="px-2.5 py-0.5 rounded font-bold bg-[#1f2937] text-emerald-400 flex items-center gap-1 cursor-pointer transition" title="Show live market data.">
           <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-dot" id="modePaperDot"></span>
-          <span>Paper Trading</span>
+          <span>Live</span>
         </button>
-        <button id="modeBacktestBtn" onclick="switchSystemMode('backtest')" class="px-2.5 py-0.5 rounded text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer transition">
-          <span>📊 Backtest Analysis</span>
+        <button id="modeHistoryBtn" onclick="switchSystemMode('uploaded')" class="px-2.5 py-0.5 rounded text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer transition" title="Pause trading and inspect saved candle history">
+          <span>History</span>
+        </button>
+        <button id="modeDemoExecutionBtn" onclick="toggleDeltaDemoExecution()" class="px-2.5 py-0.5 rounded text-cyan-300 hover:text-white border border-cyan-500/30 flex items-center gap-1 cursor-pointer transition" title="Switch from local paper fills to automatic orders on your Delta demo/testnet account">
+          <span>Delta Demo: Off</span>
         </button>
       </div>
     </div>
@@ -213,24 +219,6 @@
 
     <!-- Right: Status Pills & Action Controls -->
     <div class="flex items-center gap-2 font-mono-num text-xs">
-      <!-- Upload Specific Timeframe Data Button -->
-      <button class="flex items-center gap-1.5 bg-[#161f30] hover:bg-[#1d293d] border border-cyan-500/40 text-cyan-300 text-xs px-2.5 py-1 rounded transition font-medium cursor-pointer" onclick="openUploadModal('fileTab')" title="Upload CSV/Parquet/JSON Bitcoin candle dataset or load local cache">
-        <span class="material-symbols-outlined text-[14px]">cloud_upload</span>
-        <span>Upload Data</span>
-      </button>
-
-      <!-- Run Backtest on Uploaded Data Button (Shows in Backtest Mode) -->
-      <label class="text-[10px] text-slate-400 flex items-center gap-1" title="Candles used to generate and execute strategy signals">Exec
-        <input id="backtestExecutionTf" value="15m" class="w-12 bg-[#111827] border border-[#2d3a4f] rounded px-1.5 py-1 text-[11px] text-white" aria-label="Backtest execution timeframe" />
-      </label>
-      <label class="text-[10px] text-slate-400 flex items-center gap-1" title="Higher timeframe used for trend alignment">Trend
-        <input id="backtestTrendTf" value="1h" class="w-12 bg-[#111827] border border-[#2d3a4f] rounded px-1.5 py-1 text-[11px] text-white" aria-label="Backtest trend timeframe" />
-      </label>
-      <button class="hidden flex items-center gap-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs px-3 py-1 rounded transition shadow-md cursor-pointer" id="runBacktestBtn" onclick="runBacktest()" title="Run the strategy over the full selected dataset">
-        <span class="material-symbols-outlined text-[14px]">play_circle</span>
-        <span>Run Backtest</span>
-      </button>
-
       <!-- 8-Rule Risk Status Pill (Clickable) -->
       <button class="flex items-center gap-1.5 bg-[#161f30] hover:bg-[#1b263b] text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded transition text-xs font-semibold group cursor-pointer" id="riskBadgeBtn" onclick="openRiskModal()" title="Click to view 8-Rule Risk Radar">
         <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-dot" id="riskBadgeDot"></span>
@@ -251,9 +239,9 @@
         <span class="material-symbols-outlined text-[14px]" id="pauseBtnIcon">pause</span>
         <span id="pauseBtnText">Pause</span>
       </button>
-      <span class="flex items-center gap-1.5 bg-emerald-950/40 border border-emerald-700/40 text-emerald-300 text-[10px] px-2 py-1 rounded font-semibold" title="The strategy places simulated orders automatically when a signal passes all risk checks.">
+      <span id="autoExecutionBadge" class="flex items-center gap-1.5 bg-amber-950/40 border border-amber-700/40 text-amber-300 text-[10px] px-2 py-1 rounded font-semibold" title="Strategy trades are simulated locally.">
         <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-dot"></span>
-        <span>AUTO PAPER</span>
+        <span>PAPER MODE</span>
       </span>
 
       <!-- Emergency Kill Switch -->
@@ -350,35 +338,6 @@
       </div>
     </div>
 
-    <!-- BACKTEST PERFORMANCE BANNER (Visible when backtest results are available) -->
-    <div id="backtestBanner" class="hidden bg-[#111827] border border-amber-500/50 rounded p-2.5 flex items-center justify-between text-xs font-mono-num shadow-md">
-      <div class="flex items-center gap-3 flex-wrap">
-        <span class="text-xs font-bold text-amber-400 bg-amber-400/10 border border-amber-400/20 px-2 py-0.5 rounded uppercase flex items-center gap-1">
-          <span>📊 Backtest Report</span>
-        </span>
-        <span id="btDataDescription" class="text-slate-400">Bundled data · 15m / 1h</span>
-        <span class="text-slate-300">Total Return: <strong id="btReturn" class="text-emerald-400 font-bold">+0.00%</strong></span>
-        <span class="text-slate-500">|</span>
-        <span class="text-slate-300">Net Profit: <strong id="btNetProfit" class="text-emerald-400 font-bold">+$0.00</strong></span>
-        <span class="text-slate-500">|</span>
-        <span class="text-slate-300">Win Rate: <strong id="btWinRate" class="text-cyan-400">0.0%</strong></span>
-        <span class="text-slate-500">|</span>
-        <span class="text-slate-300">Profit Factor: <strong id="btPf" class="text-slate-100">0.00</strong></span>
-        <span class="text-slate-500">|</span>
-        <span class="text-slate-300">Fees: <strong id="btFees" class="text-slate-100">$0.00</strong></span>
-        <span class="text-slate-300">Funding: <strong id="btFunding" class="text-slate-100">$0.00</strong></span>
-        <span class="text-slate-500">|</span>
-        <span class="text-slate-300">Max DD: <strong id="btMaxDd" class="text-rose-400">-0.00%</strong></span>
-        <span class="text-slate-500">|</span>
-        <span class="text-slate-300">Full Year Trades: <strong id="btTradesCount" class="text-amber-300">0</strong></span>
-        <span class="text-slate-500">|</span>
-      </div>
-      <div class="flex items-center gap-2">
-        <span class="text-[11px] text-emerald-400/80">▲▼ Overlaid on Candles</span>
-        <button onclick="document.getElementById('backtestBanner').classList.add('hidden')" class="text-slate-500 hover:text-slate-300 p-0.5 cursor-pointer"><span class="material-symbols-outlined text-[14px]">close</span></button>
-      </div>
-    </div>
-
     <!-- FULL CENTER STAGE CANDLESTICK CHART CONTAINER (70%+ Visual Focus) -->
     <div class="bg-[#111827] border border-[#1f2937] rounded flex flex-col flex-1 relative min-h-[380px] min-w-0 overflow-hidden shadow-lg">
       <!-- Chart Controls Bar: Flexible & Responsive Without Clipping -->
@@ -393,9 +352,9 @@
           </div>
 
           <div id="chartZoomControls" class="hidden items-center bg-[#0b0f17] p-0.5 rounded border border-[#1f2937] text-[11px]">
-            <button class="px-2 py-0.5 text-slate-300 hover:text-white cursor-pointer" onclick="zoomBacktestChart(0.8)" title="Zoom out in time">−</button>
+            <button class="px-2 py-0.5 text-slate-300 hover:text-white cursor-pointer" onclick="zoomChartTime(0.8)" title="Zoom out in time">−</button>
             <span class="px-1 text-slate-500">ZOOM</span>
-            <button class="px-2 py-0.5 text-slate-300 hover:text-white cursor-pointer" onclick="zoomBacktestChart(1.25)" title="Zoom in in time">+</button>
+            <button class="px-2 py-0.5 text-slate-300 hover:text-white cursor-pointer" onclick="zoomChartTime(1.25)" title="Zoom in in time">+</button>
           </div>
 
           <div class="h-3.5 w-px bg-[#1f2937]"></div>
@@ -455,9 +414,9 @@
           </button>
 
           <!-- Upload JSON / Dataset Quick Action -->
-          <button class="flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/50 text-cyan-300 font-semibold text-[11px] transition cursor-pointer" onclick="openUploadModal('pasteTab')" title="Upload or Paste Bitcoin JSON / Dataset">
+          <button class="flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/50 text-cyan-300 font-semibold text-[11px] transition cursor-pointer" onclick="openUploadModal('fileTab')" title="Manage candle data">
             <span class="material-symbols-outlined text-[13px]">cloud_upload</span>
-            <span>Upload Data</span>
+            <span>Candle Data</span>
           </button>
 
           <div class="h-3.5 w-px bg-[#1f2937]"></div>
@@ -495,7 +454,7 @@
             <div>C: <span class="text-white" id="ttClose">--</span></div>
             <div>Range: <span class="text-slate-200" id="ttRange">--</span></div>
             <div>Change: <span id="ttChange">--</span></div>
-            <div class="col-span-2 text-slate-400 pt-0.5">Volume: <span class="text-amber-300 font-medium" id="ttVol">--</span> BTC</div>
+            <div class="col-span-2 text-slate-400 pt-0.5">Volume: <span class="text-amber-300 font-medium" id="ttVol">--</span> <span id="ttVolumeAsset">BTC</span></div>
             <div class="col-span-2 text-slate-500 text-[9px] pt-0.5">Unix timestamp: <span id="ttTimestamp">--</span></div>
           </div>
         </div>
@@ -566,7 +525,7 @@
               <thead class="bg-[#0b0f17] text-[10px] text-slate-500 uppercase sticky top-0 border-b border-[#1f2937]">
                 <tr>
                   <th class="py-1.5 px-3">Order ID</th>
-                  <th class="py-1.5 px-2">Side</th>
+                  <th class="py-1.5 px-2">Side / Event</th>
                   <th class="py-1.5 px-2">Type</th>
                   <th class="py-1.5 px-2">Trigger / Limit</th>
                   <th class="py-1.5 px-2">Size</th>
@@ -583,8 +542,8 @@
         <!-- Sub-panel Right: Recent Trades Blotter (/api/v1/trades) - 6 cols -->
         <div class="md:col-span-6 flex flex-col overflow-hidden">
           <div class="px-3 py-1.5 bg-[#0e1420] border-b border-[#1f2937] flex items-center justify-between text-[11px] font-mono-num">
-            <span class="font-semibold text-slate-300 uppercase">Recent Fills Blotter</span>
-            <span class="text-slate-500">Paper execution • simulated fills</span>
+            <span class="font-semibold text-slate-300 uppercase">Recent Trades &amp; Orders</span>
+            <span class="text-slate-500" id="executionRouteLabel">Paper simulation • no exchange orders</span>
           </div>
           <div class="flex-1 overflow-auto">
             <table class="w-full text-left font-mono-num text-xs">
@@ -592,7 +551,7 @@
                 <tr>
                   <th class="py-1.5 px-3">Execution Time (IST)</th>
                   <th class="py-1.5 px-2">Side</th>
-                  <th class="py-1.5 px-2">Fill Price</th>
+                  <th class="py-1.5 px-2">Fill / Reference Price</th>
                   <th class="py-1.5 px-2">Size</th>
                   <th class="py-1.5 px-2">Fee</th>
                   <th class="py-1.5 px-2">Net P&amp;L</th>
@@ -701,7 +660,7 @@
             <span class="material-symbols-outlined text-[18px]">cloud_upload</span>
           </span>
           <div>
-            <h3 class="font-mono text-sm font-bold text-white uppercase tracking-wider">Bitcoin Data Ingestion &amp; Price Alignment</h3>
+            <h3 class="font-mono text-sm font-bold text-white uppercase tracking-wider">Market Data</h3>
             <p class="text-[11px] text-slate-400">Upload JSON/CSV datasets, paste JSON directly, or sync live real-world BTC market price</p>
           </div>
         </div>
@@ -777,7 +736,7 @@
             <span class="text-[11px] text-cyan-400 font-mono">https://cdn-ind.testnet.deltaex.org</span>
           </div>
           <div class="text-[11px] text-slate-400 leading-relaxed">
-            Directly queries the Delta Exchange Testnet REST API (<code class="text-slate-300">/v2/history/candles</code>) for active contract <strong class="text-white">BTCUSD</strong> (ID: 84) and commits live candles into PostgreSQL <strong class="text-cyan-400">algo_bot2</strong>.
+            Directly queries Delta Exchange for the selected contract <strong class="text-white" id="deltaActiveSymbolLabel">BTCUSD</strong> and commits its candles into the configured database.
           </div>
           <div class="flex items-center justify-between text-xs pt-1 border-t border-[#1f2937]">
             <span class="text-slate-400">Live Mark Price:</span>
@@ -836,18 +795,18 @@
             <span class="text-base font-bold text-emerald-400 font-mono" id="syncModalPriceDisplay">$82,988.36</span>
           </div>
           <div class="text-[11px] text-slate-400 leading-relaxed">
-            Synchronize system pricing with live real-world exchange ticker data (Coinbase / Binance) or manually set the exact Bitcoin price to calibrate all strategy, margin, and order calculations.
+            Synchronize the selected market with a live reference ticker or manually set its price to calibrate strategy, margin, and order calculations.
           </div>
         </div>
 
         <button onclick="syncLivePrice()" id="syncPriceBtn" class="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded transition flex items-center justify-center gap-2 cursor-pointer shadow-md">
           <span class="material-symbols-outlined text-[16px]">sync</span>
-          <span>Fetch Live BTC Ticker from Coinbase / Binance</span>
+          <span id="fetchLiveTickerLabel">Fetch Live BTC Ticker from Coinbase / Binance</span>
         </button>
 
         <!-- Manual Price Override -->
         <div class="border-t border-[#1f2937] pt-2.5 flex flex-col gap-2">
-          <label class="text-[11px] uppercase text-slate-400 font-semibold">Or Set Exact Bitcoin Price Manually ($):</label>
+          <label class="text-[11px] uppercase text-slate-400 font-semibold" id="manualPriceLabel">Or Set Exact BTC Price Manually ($):</label>
           <div class="flex items-center gap-2">
             <div class="relative flex-1">
               <span class="absolute left-2.5 top-1.5 text-slate-500 text-xs font-mono">$</span>
@@ -920,10 +879,14 @@
     // --- APPLICATION STATE (FastAPI Backend Model Mirror) ---
     const AppState = {
       mode: "paper", // "paper" | "uploaded"
+      execution_mode: "paper", // paper | delta_demo
+      account_connected: null,
       status: "running", // "running" | "paused" | "halted"
       is_halted: false,
       halt_reason: "",
       symbol: "BTCUSD",
+      display_currency: 'USD',
+      usd_inr_rate: null,
       current_price: 0,
       spot_price: null,
       price_received_timestamp: null,
@@ -938,12 +901,10 @@
       daily_pnl_limit: -500.00,
       history_offset: 0, // 0 = live head, 48 = 48 bars back, etc.
       all_candles: [], // Full pool of stored historical candles from algo_bot2
-      backtest_data_loaded: false,
-      backtest_data_timeframe: null,
-      backtest_data_source: 'bundled',
+      history_data_loaded: false,
+      history_data_timeframe: null,
+      history_data_source: 'history',
       show_trade_markers: true, // Toggle BUY/SELL markers on chart
-      backtest_results: null, // Holds metrics when backtest executed
-      backtest_trades: [], // Backtest trades with reasons
       live_data_error: false,
       candle_request_id: 0,
       stored_timeframes: {}, // Summary of candles stored in PostgreSQL
@@ -975,11 +936,78 @@
       candles: []
     };
 
+    function assetBase() { return (AppState.symbol || 'BTCUSD').replace(/USD$/i, ''); }
+    function money(value, digits = 2) {
+      const amount = Number(value) || 0;
+      const isInr = AppState.display_currency === 'INR' && Number(AppState.usd_inr_rate) > 0;
+      return new Intl.NumberFormat(isInr ? 'en-IN' : 'en-US', {
+        style: 'currency', currency: isInr ? 'INR' : 'USD',
+        minimumFractionDigits: digits, maximumFractionDigits: digits
+      }).format(isInr ? amount * AppState.usd_inr_rate : amount);
+    }
+    function axisMoney(value) {
+      const amount = Number(value) || 0;
+      if (AppState.display_currency === 'INR' && Number(AppState.usd_inr_rate) > 0) {
+        return new Intl.NumberFormat('en-IN', {style: 'currency', currency: 'INR', notation: 'compact', maximumFractionDigits: 1})
+          .format(amount * AppState.usd_inr_rate);
+      }
+      return money(amount, 0);
+    }
+    async function toggleDisplayCurrency() {
+      if (AppState.display_currency === 'USD') {
+        try {
+          if (!AppState.usd_inr_rate) {
+            const response = await fetch('/api/v1/fx/usd-inr');
+            if (!response.ok) throw new Error('Could not load USD/INR rate');
+            const data = await response.json();
+            AppState.usd_inr_rate = Number(data.rate);
+          }
+          if (!(AppState.usd_inr_rate > 0)) throw new Error('USD/INR rate is unavailable');
+          AppState.display_currency = 'INR';
+        } catch (error) { showToast(`${error.message}; keeping USD display`, 'error'); return; }
+      } else AppState.display_currency = 'USD';
+      const button = document.getElementById('currencyToggleBtn');
+      if (button) button.innerText = AppState.display_currency;
+      updateDOM();
+    }
+    async function switchActiveAsset(symbol) {
+      const selector = document.getElementById('activeAssetSelect');
+      try {
+        const response = await fetch('/api/v1/asset', {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({symbol})
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || `Market switch failed (${response.status})`);
+        AppState.symbol = data.symbol;
+        AppState.current_price = 0; AppState.spot_price = null;
+        AppState.candles = []; AppState.all_candles = []; AppState.history_offset = 0;
+        AppState.history_data_loaded = false; AppState.history_data_timeframe = null;
+        chartLayoutKey = '';
+        updateDOM();
+        await fetchCandlesFromStore();
+        try {
+          const priceResponse = await fetch(`/api/v1/price?symbol=${encodeURIComponent(data.symbol)}`);
+          if (priceResponse.ok) {
+            const price = await priceResponse.json();
+            if (price.mark_price > 0) AppState.current_price = Number(price.mark_price);
+            if (price.spot_price > 0) AppState.spot_price = Number(price.spot_price);
+            updateDOM();
+          }
+        } catch (_) {}
+        showToast(`Market changed to ${data.symbol}`, 'success');
+      } catch (error) {
+        if (selector) selector.value = AppState.symbol;
+        showToast(error.message, 'error');
+      }
+    }
+    window.switchActiveAsset = switchActiveAsset;
+    window.toggleDisplayCurrency = toggleDisplayCurrency;
+
     // --- CANVAS CANDLESTICK & BRACKET RENDERER ---
     const canvas = document.getElementById('mainChartCanvas');
     const ctx = canvas.getContext('2d');
     const chartTrack = document.getElementById('chartCanvasTrack');
-    let backtestCandleWidth = 10;
+    let chartCandleWidth = 10;
     let chartLayoutKey = '';
     let chartDragState = null;
     let lastChartPointer = null;
@@ -1038,7 +1066,7 @@
       const candles = AppState.candles;
       const count = candles.length;
       const scrollableChart = count > 72;
-      const candleWidth = scrollableChart ? backtestCandleWidth : 12;
+      const candleWidth = scrollableChart ? chartCandleWidth : 12;
       const rightPriceAxisWidth = 75;
       const contentWidth = Math.max(width, count * candleWidth + rightPriceAxisWidth);
       const layoutKey = `${AppState.mode}:${AppState.timeframe}:${count}`;
@@ -1122,7 +1150,7 @@
         ctx.fillStyle = '#64748b';
         ctx.font = '10px JetBrains Mono';
         ctx.textAlign = 'left';
-        ctx.fillText('$' + Math.round(p).toLocaleString(), chartWidth + 8, y + 3);
+        ctx.fillText(axisMoney(p), chartWidth + 8, y + 3);
       }
 
       // Draw Candlesticks & Volume
@@ -1161,7 +1189,7 @@
         ctx.fillRect(x - bodyWidth / 2, height - vHeight, bodyWidth, vHeight);
       }
 
-      // Date labels make the full uploaded backtest range visible at a glance.
+      // Date labels help locate candles across the complete stored history.
       if (scrollableChart && lastVisible > firstVisible) {
         const tickCount = Math.min(7, Math.max(2, Math.floor(chartWidth / 180)));
         ctx.save();
@@ -1284,19 +1312,19 @@
         ctx.fillText(`SL ${(AppState.active_position.stop_loss / 1000).toFixed(1)}k`, chartWidth + (rightPriceAxisWidth / 2), ySL + 3);
       }
 
-      // Plot backtest/live entry and exit fills at their actual candle times and prices.
+      // Plot paper/live entry and exit fills at their actual candle times and prices.
       if (AppState.show_trade_markers && count > 0) {
-        const tradesToPlot = AppState.mode === 'uploaded'
-          ? (AppState.backtest_trades || [])
-          : (AppState.recent_trades || []);
+        const tradesToPlot = AppState.mode === 'uploaded' ? [] : (AppState.recent_trades || []);
 
         tradesToPlot.forEach(tr => {
-          const entryTs = Number(tr.entry_ts || tr.ts || (tr.time ? parseTimeToTs(tr.time, candles[count - 1].ts) : 0));
-          const exitTs = Number(tr.exit_ts || 0);
-          const points = entryTs
-            ? [{ ts: entryTs, price: Number(tr.entry_price || tr.entry || tr.price || 0), kind: 'entry' }]
-            : [];
-          if (exitTs) points.push({ ts: exitTs, price: Number(tr.exit_price || tr.exit || 0), kind: 'exit' });
+          const isExitEvent = String(tr.event_type || '').toUpperCase() === 'EXIT';
+          const eventTs = Number(tr.ts || (tr.time ? parseTimeToTs(tr.time, candles[count - 1].ts) : 0));
+          const entryTs = isExitEvent ? 0 : Number(tr.entry_ts || eventTs);
+          const exitTs = isExitEvent ? Number(tr.exit_ts || eventTs) : Number(tr.exit_ts || 0);
+          const points = isExitEvent
+            ? (exitTs ? [{ ts: exitTs, price: Number(tr.exit_price || tr.price || 0), kind: 'exit' }] : [])
+            : (entryTs ? [{ ts: entryTs, price: Number(tr.entry_price || tr.entry || tr.price || 0), kind: 'entry' }] : []);
+          if (!isExitEvent && exitTs) points.push({ ts: exitTs, price: Number(tr.exit_price || tr.exit || 0), kind: 'exit' });
 
           points.forEach(point => {
             let matchedIdx = -1;
@@ -1370,12 +1398,12 @@
         ctx.fillStyle = '#0b0f17';
         ctx.font = 'bold 10px JetBrains Mono';
         ctx.textAlign = 'center';
-        ctx.fillText(chartPrice.toFixed(1), chartWidth + (rightPriceAxisWidth / 2), yMark + 4);
+        ctx.fillText(axisMoney(chartPrice), chartWidth + (rightPriceAxisWidth / 2), yMark + 4);
       }
 
     }
 
-    // Keep the fixed-size canvas in sync with the visible slice as the backtest track scrolls.
+    // Keep the fixed-size canvas in sync with the visible chart slice as it scrolls.
     const chartWrapper = document.getElementById('chartCanvasWrapper');
     chartWrapper.addEventListener('scroll', () => {
       renderChart();
@@ -1383,17 +1411,17 @@
       // zoomed, or automatically advanced by incoming live candles.
       if (lastChartPointer && !chartDragState) updateCandleHoverInfo(lastChartPointer);
     }, { passive: true });
-    function zoomBacktestChart(factor) {
+    function zoomChartTime(factor) {
       if (AppState.candles.length <= 72) return;
       const plotWidth = Math.max(chartWrapper.clientWidth - 75, 100);
-      const oldWidth = backtestCandleWidth;
+      const oldWidth = chartCandleWidth;
       const anchorIndex = (chartWrapper.scrollLeft + plotWidth / 2) / oldWidth;
-      backtestCandleWidth = Math.min(24, Math.max(4, oldWidth * factor));
+      chartCandleWidth = Math.min(24, Math.max(4, oldWidth * factor));
       renderChart();
-      chartWrapper.scrollLeft = Math.max(0, anchorIndex * backtestCandleWidth - plotWidth / 2);
+      chartWrapper.scrollLeft = Math.max(0, anchorIndex * chartCandleWidth - plotWidth / 2);
       renderChart();
     }
-    window.zoomBacktestChart = zoomBacktestChart;
+    window.zoomChartTime = zoomChartTime;
 
     canvas.addEventListener('pointerdown', (e) => {
       if (AppState.candles.length <= 72 || e.button !== 0) return;
@@ -1445,7 +1473,7 @@
       if (count === 0) return;
 
       const scrollableChart = count > 72;
-      const candleWidth = scrollableChart ? backtestCandleWidth : 12;
+      const candleWidth = scrollableChart ? chartCandleWidth : 12;
       const scrollLeft = scrollableChart ? container.scrollLeft : 0;
       if (mouseX < 0 || mouseX > chartWidth || mouseY < 0 || mouseY > rect.height) {
         document.getElementById('chartTooltip').classList.add('hidden');
@@ -1488,7 +1516,8 @@
         document.getElementById('ttTime').innerText = candleTimeFormatter.format(d) + ' IST';
         document.getElementById('ttSymbol').innerText = AppState.symbol || 'BTCUSD';
         document.getElementById('ttTf').innerText = AppState.timeframe.toUpperCase();
-        const formatPrice = (value) => '$' + Number(value).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+        const formatPrice = (value) => money(value, 1);
+        document.getElementById('ttVolumeAsset').innerText = assetBase();
         document.getElementById('ttOpen').innerText = formatPrice(open);
         document.getElementById('ttHigh').innerText = formatPrice(high);
         document.getElementById('ttLow').innerText = formatPrice(low);
@@ -1572,29 +1601,44 @@
       } catch (e) {}
 
       if (selectedMode === 'uploaded') {
-        AppState.backtest_data_loaded = false;
-        AppState.backtest_data_timeframe = null;
-        AppState.backtest_data_source = 'uploaded';
+        AppState.history_data_loaded = false;
+        AppState.history_data_timeframe = null;
+        AppState.history_data_source = 'history';
         AppState.all_candles = [];
         AppState.history_offset = 0;
-        AppState.backtest_trades = [];
-        AppState.backtest_results = null;
-        document.getElementById('backtestBanner')?.classList.add('hidden');
-        showToast("Backtest analysis selected. Run the analysis to view results.", "info");
-        addLog("INFO", "Backtest analysis selected. Historical dataset and strategy results are shown on the chart.");
+        showToast("Candle history selected. Trading is paused while you inspect stored candles.", "info");
+        addLog("INFO", "Candle history selected; live trading is paused.");
         await fetchCandlesFromStore();
       } else {
-        AppState.backtest_data_loaded = false;
-        AppState.backtest_data_timeframe = null;
+        AppState.history_data_loaded = false;
+        AppState.history_data_timeframe = null;
         AppState.all_candles = [];
-        AppState.backtest_trades = [];
-        AppState.backtest_results = null;
-        document.getElementById('backtestBanner')?.classList.add('hidden');
-        showToast("Paper trading selected. Orders are simulated using live market data.", "success");
-        addLog("INFO", "PAPER mode active. No orders are sent to Delta Exchange.");
+        showToast(AppState.execution_mode === 'delta_demo' ? "Live market view selected. Delta Demo execution remains enabled." : "Live market view selected. Paper trading remains active.", "success");
+        addLog("INFO", AppState.execution_mode === 'delta_demo' ? "Live market view active with Delta DEMO TESTNET execution enabled." : "Live market data active; paper trading is active.");
         resetCandlesToLive();
       }
       updateDOM();
+    }
+
+    async function toggleDeltaDemoExecution() {
+      const enabling = AppState.execution_mode !== 'delta_demo';
+      if (enabling && !window.confirm('Switch from simulated paper trading to automatic orders on your Delta DEMO/TESTNET account? The demo account may open and close positions when signals pass risk checks.')) return;
+      try {
+        const response = await fetch('/api/v1/execution-mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: enabling ? 'delta_demo' : 'paper' })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || 'Could not change execution mode');
+        AppState.execution_mode = result.execution_mode;
+        showToast(enabling ? 'Delta Demo execution enabled. Approved strategy signals can submit demo orders.' : 'Paper trading enabled. Approved signals create simulated fills.', enabling ? 'warning' : 'success');
+        addLog('EXEC', enabling ? 'Delta DEMO TESTNET execution enabled. Per-order cap: $' + Number(result.max_order_notional_usd || 0).toFixed(0) : 'Paper trading enabled; approved signals create simulated fills.');
+        updateDOM();
+        await syncFromBackend();
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
     }
 
     function toggleTradeMarkers() {
@@ -1634,35 +1678,35 @@
       const isCurrentRequest = () => requestId === AppState.candle_request_id &&
         requestedMode === AppState.mode && requestedTimeframe === AppState.timeframe &&
         requestedSymbol === AppState.symbol;
-      const useBacktestData = AppState.mode === 'uploaded' || AppState.backtest_data_loaded;
-      const source = AppState.backtest_data_loaded ? AppState.backtest_data_source : 'uploaded';
+      const useHistoryData = AppState.mode === 'uploaded' || AppState.history_data_loaded;
+      const source = AppState.history_data_loaded ? AppState.history_data_source : 'history';
 
-      if (useBacktestData) {
+      if (useHistoryData) {
         try {
-          if (AppState.backtest_data_timeframe !== AppState.timeframe ||
-              AppState.backtest_data_source !== source || !AppState.all_candles.length) {
-            const allRes = await fetch(`/api/v1/backtest/candles?symbol=${encodeURIComponent(AppState.symbol)}&resolution=${encodeURIComponent(AppState.timeframe)}&source=${encodeURIComponent(source)}&limit=1000000`);
+          if (AppState.history_data_timeframe !== AppState.timeframe ||
+              AppState.history_data_source !== source || !AppState.all_candles.length) {
+            const allRes = await fetch(`/api/v1/history/candles?symbol=${encodeURIComponent(AppState.symbol)}&resolution=${encodeURIComponent(AppState.timeframe)}&source=${encodeURIComponent(source)}&limit=1000000`);
             if (!isCurrentRequest()) return;
-            if (!allRes.ok) throw new Error(`Uploaded candle request failed (${allRes.status})`);
+            if (!allRes.ok) throw new Error(`Candle history request failed (${allRes.status})`);
             const allCandles = await allRes.json();
             if (!isCurrentRequest()) return;
             if (!Array.isArray(allCandles) || allCandles.length === 0) {
               AppState.all_candles = [];
               AppState.candles = [];
-              AppState.backtest_data_loaded = false;
-              AppState.backtest_data_timeframe = AppState.timeframe;
-              AppState.backtest_data_source = source;
+              AppState.history_data_loaded = false;
+              AppState.history_data_timeframe = AppState.timeframe;
+              AppState.history_data_source = source;
               renderChart();
-              showToast(`No ${AppState.timeframe} uploaded candles found. Upload this timeframe to chart it.`, "warning");
+              showToast(`No stored ${AppState.timeframe} candles found for this market.`, "warning");
               return;
             }
             AppState.all_candles = allCandles;
-            AppState.backtest_data_loaded = true;
-            AppState.backtest_data_timeframe = AppState.timeframe;
-            AppState.backtest_data_source = source;
+            AppState.history_data_loaded = true;
+            AppState.history_data_timeframe = AppState.timeframe;
+            AppState.history_data_source = source;
           }
 
-          // Backtest mode fits the complete selected timeframe onto the chart.
+          // History mode fits the selected stored timeframe onto the chart.
           AppState.candles = AppState.all_candles;
           if (AppState.history_offset === 0 && AppState.candles.length) {
             AppState.current_price = Number(AppState.candles[AppState.candles.length - 1].close) || AppState.current_price;
@@ -1672,7 +1716,7 @@
           if (!isCurrentRequest()) return;
           AppState.candles = [];
           renderChart();
-          showToast(`Could not load uploaded ${AppState.timeframe} candles: ${e.message}`, "error");
+          showToast(`Could not load ${AppState.timeframe} candle history: ${e.message}`, "error");
         }
         return;
       }
@@ -1811,13 +1855,21 @@
         m.style.display = 'flex';
       }
       switchUploadTab(defaultTab || 'fileTab');
+      const symbolInput = document.getElementById('uploadSymbolInput');
+      if (symbolInput) symbolInput.value = AppState.symbol;
+      const deltaSymbol = document.getElementById('deltaActiveSymbolLabel');
+      if (deltaSymbol) deltaSymbol.innerText = AppState.symbol;
+      const tickerLabel = document.getElementById('fetchLiveTickerLabel');
+      if (tickerLabel) tickerLabel.innerText = `Fetch Live ${assetBase()} Ticker from Coinbase / Binance`;
+      const manualPriceLabel = document.getElementById('manualPriceLabel');
+      if (manualPriceLabel) manualPriceLabel.innerText = `Or Set Exact ${assetBase()} Price Manually ($):`;
       const syncDisplay = document.getElementById('syncModalPriceDisplay');
       if (syncDisplay) {
-        syncDisplay.innerText = '$' + AppState.current_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        syncDisplay.innerText = money(AppState.current_price);
       }
       const deltaDisplay = document.getElementById('deltaTabPriceDisplay');
       if (deltaDisplay) {
-        deltaDisplay.innerText = '$' + AppState.current_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        deltaDisplay.innerText = money(AppState.current_price);
       }
       refreshDatabaseSummary();
     }
@@ -1881,7 +1933,7 @@
       });
 
       try {
-        const res = await fetch(`/api/v1/exchange/sync-candles?symbol=BTCUSD&resolution=${tf}&limit=50`, {
+        const res = await fetch(`/api/v1/exchange/sync-candles?symbol=${encodeURIComponent(AppState.symbol)}&resolution=${tf}&limit=50`, {
           method: 'POST'
         });
         if (res.ok) {
@@ -1890,7 +1942,7 @@
             AppState.current_price = Number(data.latest_price);
           }
           AppState.timeframe = tf;
-          showToast(`Delta Exchange Synced: ${data.count} live candles! Mark: $${AppState.current_price.toLocaleString('en-US', {minimumFractionDigits: 2})}`, "success");
+          showToast(`Delta Exchange Synced: ${data.count} ${AppState.symbol} candles! Mark: ${money(AppState.current_price)}`, "success");
           addLog("INFO", `Synced ${data.count} live ${tf} candles from Delta Exchange Testnet. Mark: $${AppState.current_price.toFixed(2)}`);
           await fetchCandlesFromStore();
           refreshDatabaseSummary();
@@ -2037,7 +2089,7 @@
         ], null, 2);
       } else if (format === 'single') {
         textarea.value = JSON.stringify({
-          symbol: "BTCUSD",
+          symbol: AppState.symbol,
           price: 83250.0,
           open: 83200.0,
           high: 83320.0,
@@ -2125,120 +2177,43 @@
       }
     }
 
-    async function runBacktest() {
-      const banner = document.getElementById('backtestBanner');
-      const executionTf = (document.getElementById('backtestExecutionTf')?.value || '15m').trim().toLowerCase();
-      const trendTf = (document.getElementById('backtestTrendTf')?.value || '1h').trim().toLowerCase();
-      showToast(`Backtesting ${executionTf} execution + ${trendTf} trend candles...`, "info");
-      addLog("EXEC", `POST /api/v1/backtest/run -> ${executionTf} execution candles with ${trendTf} trend alignment...`);
-
-      try {
-        const res = await fetch('/api/v1/backtest/run', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ execution_timeframe: executionTf, trend_timeframe: trendTf, symbol: AppState.symbol })
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data && data.status === 'ok') {
-            AppState.timeframe = data.execution_timeframe || executionTf;
-            const m = data.metrics;
-            AppState.backtest_results = m;
-            AppState.backtest_trades = (data.trades || []).map((t, idx) => {
-              const tsVal = t.entry_ts || t.ts || (t.entry_time ? new Date(t.entry_time).getTime() / 1000 : null);
-              const d = tsVal ? new Date(tsVal * 1000) : new Date();
-              return {
-                id: `BT-${idx + 1}`,
-                time: formatIstTime(tsVal),
-                ts: tsVal || Math.floor(d.getTime() / 1000),
-                side: (t.side || 'BUY').toUpperCase(),
-                price: Number(t.entry_price || t.exit_price || 0),
-                entry_ts: Number(t.entry_ts || tsVal || 0),
-                exit_ts: Number(t.exit_ts || 0),
-                entry_price: Number(t.entry_price || t.entry || 0),
-                exit_price: Number(t.exit_price || t.exit || 0),
-                pnl: Number(t.pnl || 0),
-                exit_reason: t.exit_reason || '',
-                size: Number(t.size || 0.10),
-                fee: Number(t.fees || 0),
-                reason: t.reason || `Backtest ${t.side} signal (PnL: $${Number(t.pnl || 0).toFixed(2)})`,
-                route: "BACKTEST"
-              };
-            });
-
-            AppState.backtest_data_source = data.data_source || 'bundled';
-            const chartDataRes = await fetch(`/api/v1/backtest/candles?symbol=${encodeURIComponent(AppState.symbol)}&resolution=${encodeURIComponent(AppState.timeframe)}&source=${encodeURIComponent(AppState.backtest_data_source)}&limit=1000000`);
-            if (!chartDataRes.ok) throw new Error('Backtest candles could not be loaded for the chart');
-            AppState.all_candles = await chartDataRes.json();
-            AppState.backtest_data_loaded = true;
-            AppState.backtest_data_timeframe = AppState.timeframe;
-            AppState.history_offset = 0;
-            await fetchCandlesFromStore();
-            if (AppState.candles.length) AppState.current_price = AppState.candles[AppState.candles.length - 1].close;
-
-            if (banner) banner.classList.remove('hidden');
-            const sourceLabel = data.data_source === 'uploaded' ? 'Uploaded data' : 'Bundled data';
-            const dataDescription = document.getElementById('btDataDescription');
-            if (dataDescription) dataDescription.innerText = `${sourceLabel} · ${data.execution_timeframe} execution / ${data.trend_timeframe} trend`;
-            addLog("INFO", `Backtest used ${data.data_source} candles: ${data.bars_analyzed} ${data.execution_timeframe} execution bars with ${data.trend_timeframe} trend alignment.`);
-            const retEl = document.getElementById('btReturn');
-            if (retEl) {
-              const r = m.total_return_pct || 0;
-              retEl.innerText = `${r >= 0 ? '+' : ''}${r.toFixed(2)}%`;
-              retEl.className = r >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold';
-            }
-            const netProfitEl = document.getElementById('btNetProfit');
-            if (netProfitEl) {
-              const np = m.net_profit || 0;
-              netProfitEl.innerText = `${np >= 0 ? '+$' : '-$'}${Math.abs(np).toFixed(2)}`;
-              netProfitEl.className = np >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold';
-            }
-            const winEl = document.getElementById('btWinRate');
-            if (winEl) winEl.innerText = `${(m.win_rate_pct || 0).toFixed(1)}%`;
-            const pfEl = document.getElementById('btPf');
-            if (pfEl) pfEl.innerText = `${(m.profit_factor || 0).toFixed(2)}`;
-            const feesEl = document.getElementById('btFees');
-            if (feesEl) feesEl.innerText = `$${Number(m.total_fees_usd || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-            const fundingEl = document.getElementById('btFunding');
-            if (fundingEl) {
-              const funding = Number(m.total_funding_pnl || 0);
-              fundingEl.innerText = `${funding >= 0 ? '+' : '-'}$${Math.abs(funding).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-              fundingEl.className = funding >= 0 ? 'text-emerald-300' : 'text-rose-300';
-            }
-            const ddEl = document.getElementById('btMaxDd');
-            if (ddEl) ddEl.innerText = `-${Math.abs(m.max_drawdown_pct || 0).toFixed(2)}%`;
-            const countEl = document.getElementById('btTradesCount');
-            if (countEl) countEl.innerText = `${m.total_trades || 0}`;
-
-            showToast(`Backtest Complete! Return: +${m.total_return_pct}% (${m.total_trades} trades)`, "success");
-            addLog("INFO", `Backtest results: Return +${m.total_return_pct}%, Win Rate: ${m.win_rate_pct}%, Trades: ${m.total_trades}`);
-
-            renderChart();
-            renderRecentTrades();
-            return;
-          }
-        } else {
-          const error = await res.json().catch(() => ({}));
-          showToast(`Backtest failed: ${error.detail || res.statusText}`, "error");
-          addLog("ERROR", `Backtest failed: ${error.detail || res.statusText}`);
-        }
-        const errorBody = await res.json().catch(() => ({}));
-        throw new Error(errorBody.detail || `Backtest request failed (${res.status})`);
-      } catch (err) {
-        showToast(`Backtest run failed: ${err.message}`, "error");
-      }
-    }
-
     // --- DOM SYNC & REALTIME REFRESH ---
     function updateDOM() {
       // Header Price & Symbol
       const headerSymbol = document.getElementById('headerSymbol');
       if (headerSymbol) headerSymbol.innerText = AppState.symbol;
+      const assetSelect = document.getElementById('activeAssetSelect');
+      if (assetSelect && assetSelect.value !== AppState.symbol) assetSelect.value = AppState.symbol;
+      const currencyButton = document.getElementById('currencyToggleBtn');
+      if (currencyButton) currencyButton.innerText = AppState.display_currency;
+      const executionBadge = document.getElementById('headerDbBadge');
+      const demoButton = document.getElementById('modeDemoExecutionBtn');
+      const autoBadge = document.getElementById('autoExecutionBadge');
+      const liveDemoEnabled = AppState.execution_mode === 'delta_demo';
+      if (executionBadge) {
+        const demoConnected = AppState.account_connected !== false;
+        executionBadge.innerText = liveDemoEnabled ? (demoConnected ? 'Delta Demo • Orders Enabled' : 'Delta Demo • Offline') : 'Paper Mode';
+        executionBadge.title = liveDemoEnabled ? (demoConnected ? 'Strategy orders are routed to the Delta demo/testnet account.' : 'Delta demo account is currently unreachable. Orders are rejected until it reconnects.') : 'Approved strategy signals create simulated local fills; no exchange orders are sent.';
+        executionBadge.className = liveDemoEnabled
+          ? (demoConnected ? 'text-[10px] text-amber-300 bg-amber-400/10 border border-amber-400/30 px-1.5 py-0.5 rounded font-semibold uppercase' : 'text-[10px] text-rose-300 bg-rose-400/10 border border-rose-400/30 px-1.5 py-0.5 rounded font-semibold uppercase')
+          : 'text-[10px] text-amber-300 bg-amber-400/10 border border-amber-400/20 px-1.5 py-0.5 rounded font-semibold uppercase';
+      }
+      if (demoButton) demoButton.innerText = liveDemoEnabled ? 'Delta Demo: On' : 'Delta Demo: Off';
+      if (autoBadge) {
+        autoBadge.querySelector('span:last-child').innerText = liveDemoEnabled ? 'AUTO DEMO' : 'PAPER MODE';
+        autoBadge.title = liveDemoEnabled ? 'Approved strategy signals submit orders to the Delta demo/testnet account.' : 'Approved strategy signals create simulated paper fills.';
+        autoBadge.className = liveDemoEnabled
+          ? 'flex items-center gap-1.5 bg-amber-950/40 border border-amber-700/40 text-amber-300 text-[10px] px-2 py-1 rounded font-semibold'
+          : 'flex items-center gap-1.5 bg-amber-950/40 border border-amber-700/40 text-amber-300 text-[10px] px-2 py-1 rounded font-semibold';
+      }
+      const routeLabel = document.getElementById('executionRouteLabel');
+      if (routeLabel) routeLabel.innerText = liveDemoEnabled ? 'Delta demo testnet • exchange orders' : 'Paper simulation • no exchange orders';
       const priceTypeEl = document.getElementById('headerPriceType');
       if (priceTypeEl) priceTypeEl.innerText = `${AppState.symbol} ${AppState.price_type || 'MARK'}`;
 
-      document.getElementById('headerMarkPrice').innerText = AppState.current_price > 0 ? '$' + AppState.current_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+      document.getElementById('headerMarkPrice').innerText = AppState.current_price > 0 ? money(AppState.current_price) : '—';
       const spotEl = document.getElementById('headerSpotPrice');
-      if (spotEl) spotEl.innerText = AppState.spot_price ? 'Spot $' + Number(AppState.spot_price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'Spot —';
+      if (spotEl) spotEl.innerText = AppState.spot_price ? `Spot ${money(AppState.spot_price)}` : 'Spot —';
       const freshnessEl = document.getElementById('headerPriceFreshness');
       if (freshnessEl) {
         const age = AppState.price_received_timestamp ? Math.max(0, Math.floor(Date.now() / 1000 - AppState.price_received_timestamp)) : null;
@@ -2248,18 +2223,13 @@
 
       // Mode Switcher Sync
       const liveBtn = document.getElementById('modePaperBtn');
-      const btBtn = document.getElementById('modeBacktestBtn');
-      const runBtBtn = document.getElementById('runBacktestBtn');
-      if (liveBtn && btBtn) {
-        if (AppState.mode === 'uploaded') {
-          btBtn.className = 'px-2.5 py-0.5 rounded font-bold bg-[#1f2937] text-amber-400 flex items-center gap-1 cursor-pointer transition';
-          liveBtn.className = 'px-2.5 py-0.5 rounded text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer transition';
-          if (runBtBtn) runBtBtn.classList.remove('hidden');
-        } else {
-          liveBtn.className = 'px-2.5 py-0.5 rounded font-bold bg-[#1f2937] text-emerald-400 flex items-center gap-1 cursor-pointer transition';
-          btBtn.className = 'px-2.5 py-0.5 rounded text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer transition';
-          if (runBtBtn) runBtBtn.classList.add('hidden');
-        }
+      const historyBtn = document.getElementById('modeHistoryBtn');
+      if (AppState.mode === 'uploaded') {
+        historyBtn.className = 'px-2.5 py-0.5 rounded font-bold bg-[#1f2937] text-amber-400 flex items-center gap-1 cursor-pointer transition';
+        liveBtn.className = 'px-2.5 py-0.5 rounded text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer transition';
+      } else {
+        liveBtn.className = 'px-2.5 py-0.5 rounded font-bold bg-[#1f2937] text-emerald-400 flex items-center gap-1 cursor-pointer transition';
+        historyBtn.className = 'px-2.5 py-0.5 rounded text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer transition';
       }
 
       // History Window Label
@@ -2270,7 +2240,7 @@
       if (windowLabel) {
         if (AppState.history_offset === 0) {
           windowLabel.innerText = AppState.mode === 'uploaded'
-            ? `${AppState.backtest_data_source === 'bundled' ? 'Backtest' : 'Uploaded'} · ${AppState.all_candles.length.toLocaleString()} bars`
+            ? `History · ${AppState.all_candles.length.toLocaleString()} bars`
             : "Live Head";
         } else {
           windowLabel.innerText = `-${AppState.history_offset} Bars`;
@@ -2319,13 +2289,13 @@
       AppState.margin_used = marginUsed;
       AppState.cash_balance = Math.max(0, AppState.equity - marginUsed);
 
-      document.getElementById('kpiNetEquity').innerText = '$' + AppState.equity.toLocaleString('en-US', { minimumFractionDigits: 2 });
-      document.getElementById('kpiCash').innerText = '$' + AppState.cash_balance.toLocaleString('en-US', { minimumFractionDigits: 2 });
-      document.getElementById('kpiPeakEquity').innerText = '$' + AppState.peak_equity.toLocaleString('en-US', { minimumFractionDigits: 2 });
-      document.getElementById('kpiDailyPnlText').innerText = (AppState.daily_pnl >= 0 ? '+$' : '-$') + Math.abs(AppState.daily_pnl).toFixed(2);
+      document.getElementById('kpiNetEquity').innerText = money(AppState.equity);
+      document.getElementById('kpiCash').innerText = money(AppState.cash_balance);
+      document.getElementById('kpiPeakEquity').innerText = money(AppState.peak_equity);
+      document.getElementById('kpiDailyPnlText').innerText = `${AppState.daily_pnl >= 0 ? '+' : '-'}${money(Math.abs(AppState.daily_pnl))}`;
       document.getElementById('kpiDailyPnlText').className = AppState.daily_pnl >= 0 ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold';
       const limitTextEl = document.getElementById('kpiDailyLimitText');
-      if (limitTextEl) limitTextEl.innerText = `-$${Math.abs(AppState.daily_pnl_limit).toFixed(2)} Max`;
+      if (limitTextEl) limitTextEl.innerText = `-${money(Math.abs(AppState.daily_pnl_limit))} Max`;
 
       // Fill percentage for daily loss
       const lossFill = Math.min(100, Math.max(0, (Math.abs(Math.min(0, AppState.daily_pnl)) / Math.max(1, Math.abs(AppState.daily_pnl_limit))) * 100));
@@ -2351,10 +2321,10 @@
         floatingBadge.classList.remove('hidden');
         flatNotice.classList.add('hidden');
 
-        document.getElementById('kpiPosSize').innerText = `${p.size.toFixed(2)} BTC`;
+        document.getElementById('kpiPosSize').innerText = `${p.size.toFixed(4)} ${assetBase()}`;
         const posNotional = Math.round(AppState.current_price * p.size);
-        document.getElementById('kpiPosNotional').innerText = `$${posNotional.toLocaleString()} USD`;
-        document.getElementById('kpiPosEntry').innerText = `$${p.entry_price.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+        document.getElementById('kpiPosNotional').innerText = `${money(posNotional)} ${AppState.display_currency}`;
+        document.getElementById('kpiPosEntry').innerText = money(p.entry_price);
 
         // Calculate upnl
         const isLong = p.side === 'BUY' || p.side === 'LONG';
@@ -2362,21 +2332,21 @@
         const pnlDiff = priceDiff * p.size;
         const pnlPct = (priceDiff / p.entry_price) * 100;
         const uSign = pnlDiff >= 0 ? '+' : '';
-        document.getElementById('kpiPosUpnl').innerHTML = `${uSign}$${Math.abs(pnlDiff).toFixed(2)} (${uSign}${pnlPct.toFixed(2)}%)`;
+        document.getElementById('kpiPosUpnl').innerHTML = `${uSign}${money(Math.abs(pnlDiff))} (${uSign}${pnlPct.toFixed(2)}%)`;
         document.getElementById('kpiPosUpnl').className = pnlDiff >= 0 ? "text-emerald-400 font-bold" : "text-rose-400 font-bold";
 
-        document.getElementById('bracketStatusText').innerText = `Active (SL $${(p.stop_loss/1000).toFixed(1)}k / TP $${(p.take_profit/1000).toFixed(1)}k)`;
+        document.getElementById('bracketStatusText').innerText = `Active (SL ${money(p.stop_loss)} / TP ${money(p.take_profit)})`;
         document.getElementById('kpiBracketsCount').innerText = `${AppState.open_orders.length} Active (SL + TP)`;
 
         // Update Legend Pill
         const tpPct = ((p.take_profit - p.entry_price) / p.entry_price * 100);
         const slPct = ((p.stop_loss - p.entry_price) / p.entry_price * 100);
         const legendTp = document.getElementById('chartLegendTp');
-        if (legendTp) legendTp.innerHTML = `TP: <strong>$${p.take_profit.toLocaleString('en-US', {minimumFractionDigits: 2})} (${tpPct >= 0 ? '+' : ''}${tpPct.toFixed(2)}%)</strong>`;
+        if (legendTp) legendTp.innerHTML = `TP: <strong>${money(p.take_profit)} (${tpPct >= 0 ? '+' : ''}${tpPct.toFixed(2)}%)</strong>`;
         const legendEntry = document.getElementById('chartLegendEntry');
-        if (legendEntry) legendEntry.innerHTML = `ENTRY: <strong>$${p.entry_price.toLocaleString('en-US', {minimumFractionDigits: 2})}</strong>`;
+        if (legendEntry) legendEntry.innerHTML = `ENTRY: <strong>${money(p.entry_price)}</strong>`;
         const legendSl = document.getElementById('chartLegendSl');
-        if (legendSl) legendSl.innerHTML = `SL: <strong>$${p.stop_loss.toLocaleString('en-US', {minimumFractionDigits: 2})} (${slPct.toFixed(2)}%)</strong>`;
+        if (legendSl) legendSl.innerHTML = `SL: <strong>${money(p.stop_loss)} (${slPct.toFixed(2)}%)</strong>`;
       } else {
         posBadge.innerText = "FLAT";
         posBadge.className = "text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700";
@@ -2384,10 +2354,10 @@
         floatingBadge.classList.add('hidden');
         flatNotice.classList.remove('hidden');
 
-        document.getElementById('kpiPosSize').innerText = "0.00 BTC";
-        document.getElementById('kpiPosNotional').innerText = "$0 USD";
-        document.getElementById('kpiPosEntry').innerText = "$0.00";
-        document.getElementById('kpiPosUpnl').innerText = "$0.00 (0.00%)";
+        document.getElementById('kpiPosSize').innerText = `0.0000 ${assetBase()}`;
+        document.getElementById('kpiPosNotional').innerText = `${money(0)} ${AppState.display_currency}`;
+        document.getElementById('kpiPosEntry').innerText = money(0);
+        document.getElementById('kpiPosUpnl').innerText = `${money(0)} (0.00%)`;
         document.getElementById('kpiPosUpnl').className = "text-slate-500 font-bold";
 
         document.getElementById('bracketStatusText').innerText = "None (Flat)";
@@ -2395,9 +2365,9 @@
       }
 
       // KPI 4: Margin display
-      document.getElementById('kpiMarginUsed').innerText = '$' + marginUsed.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      document.getElementById('kpiMarginUsed').innerText = money(marginUsed);
       const avail = Math.max(0, AppState.equity - marginUsed);
-      document.getElementById('kpiMarginAvail').innerText = '$' + avail.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      document.getElementById('kpiMarginAvail').innerText = money(avail);
 
       renderOpenOrders();
       renderRecentTrades();
@@ -2462,8 +2432,8 @@
             <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${isBuy ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}">${side}</span>
           </td>
           <td class="py-1.5 px-2 text-slate-300 text-[11px] font-mono">${type}</td>
-          <td class="py-1.5 px-2 font-mono text-white text-[11px] font-bold">$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td class="py-1.5 px-2 font-mono text-slate-300 text-[11px]">${size.toFixed(2)} BTC</td>
+          <td class="py-1.5 px-2 font-mono text-white text-[11px] font-bold">${money(price)}</td>
+          <td class="py-1.5 px-2 font-mono text-slate-300 text-[11px]">${Number(o.size_btc ?? size).toFixed(4)} ${assetBase()}</td>
           <td class="py-1.5 px-3 text-right">
             <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">${status}</span>
           </td>
@@ -2477,24 +2447,26 @@
       if (!tbody) return;
       tbody.innerHTML = '';
 
-      const trades = [...(AppState.backtest_trades || []).slice().reverse(), ...(AppState.recent_trades || [])];
+      const trades = AppState.recent_trades || [];
       if (trades.length === 0) {
         tbody.innerHTML = '<tr><td colspan="8" class="py-4 text-center text-slate-500 text-[11px]">No executed trades yet</td></tr>';
         return;
       }
 
-      trades.slice(0, 50).forEach(t => {
+      trades.forEach(t => {
         const tr = document.createElement('tr');
         tr.className = 'hover:bg-[#161f30]/60 transition';
         const side = (t.side || 'BUY').toUpperCase();
+        const eventType = String(t.event_type || 'ENTRY').toUpperCase();
         const isBuy = side === 'BUY' || side === 'LONG';
         const price = Number(t.price || t.entry_price || t.fill_price || 0);
+        const priceKind = t.price_kind || 'REFERENCE';
         const size = Number(t.size || 0);
         const fee = Number(t.fee || 0);
         const pnl = t.pnl === undefined ? null : Number(t.pnl);
         const pnlClass = pnl === null ? 'text-slate-500' : pnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
         const reason = t.reason || t.exit_reason || 'Algorithmic trade execution';
-        const route = t.route || 'DELTA-TESTNET';
+        const route = t.route || '—';
 
         const tradeTs = Number(t.entry_ts || t.ts || 0);
         const tradeDate = tradeTs ? formatIstDateTime(tradeTs) : `${t.time || '--'} IST`;
@@ -2502,12 +2474,12 @@
         tr.innerHTML = `
           <td class="py-1.5 px-3 font-mono text-[10px] text-slate-400">${tradeDate}</td>
           <td class="py-1.5 px-2">
-            <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${isBuy ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}">${side}</span>
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${isBuy ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}">${side} ${eventType}</span>
           </td>
-          <td class="py-1.5 px-2 font-mono text-white text-[11px] font-bold">$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td class="py-1.5 px-2 font-mono text-slate-300 text-[11px]">${size.toFixed(2)} BTC</td>
-          <td class="py-1.5 px-2 font-mono text-slate-400 text-[11px]">$${fee.toFixed(2)}</td>
-          <td class="py-1.5 px-2 font-mono text-[11px] ${pnlClass}">${pnl === null ? '--' : `${pnl >= 0 ? '+' : '-'}$${Math.abs(pnl).toFixed(2)}`}</td>
+          <td class="py-1.5 px-2 font-mono text-white text-[11px] font-bold" title="${priceKind === 'FILL' ? 'Recorded simulated fill price' : 'Requested/reference price; exchange fill price was not returned'}">${money(price)} <span class="text-[9px] text-slate-500">${priceKind}</span></td>
+          <td class="py-1.5 px-2 font-mono text-slate-300 text-[11px]">${size.toFixed(4)} ${assetBase()}</td>
+          <td class="py-1.5 px-2 font-mono text-slate-400 text-[11px]">${money(fee)}</td>
+          <td class="py-1.5 px-2 font-mono text-[11px] ${pnlClass}">${pnl === null ? '--' : `${pnl >= 0 ? '+' : '-'}${money(Math.abs(pnl))}`}</td>
           <td class="py-1.5 px-2 text-slate-300 text-[11px] max-w-xs truncate" title="${reason}">${reason}</td>
           <td class="py-1.5 px-3 text-right">
             <span class="px-1.5 py-0.5 rounded text-[10px] font-mono text-cyan-400 bg-cyan-950/60 border border-cyan-800/40">${route}</span>
@@ -2534,7 +2506,7 @@
           <div class="flex items-center justify-between text-[11px]">
             <div class="flex items-center gap-1.5">
               <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${actionUpper.includes('BUY') ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}">${actionUpper}</span>
-              <span class="text-slate-300 font-semibold">$${Number(s.trigger_price || 0).toFixed(2)}</span>
+              <span class="text-slate-300 font-semibold">${money(Number(s.trigger_price || 0))}</span>
             </div>
             <span class="text-[10px] text-slate-500">${s.time || ''} IST</span>
           </div>
@@ -2813,15 +2785,14 @@
     // --- LIVE FASTAPI BACKEND SYNC (REST) ---
     async function syncFromBackend() {
       try {
-        const [statusRes, posRes, ordersRes, tradesRes, signalsRes, riskRes, logsRes, paperRes] = await Promise.allSettled([
+        const [statusRes, posRes, ordersRes, tradesRes, signalsRes, riskRes, logsRes] = await Promise.allSettled([
           fetch('/api/v1/status'),
           fetch('/api/v1/positions'),
           fetch('/api/v1/orders'),
-          fetch('/api/v1/trades?limit=10'),
+          fetch('/api/v1/trades?limit=1000'),
           fetch('/api/v1/signals?limit=10'),
           fetch('/api/v1/risk'),
-          fetch('/api/v1/logs?limit=25'),
-          fetch('/api/v1/paper/summary')
+          fetch('/api/v1/logs?limit=25')
         ]);
 
         if (statusRes.status === 'fulfilled' && statusRes.value.ok) {
@@ -2830,6 +2801,8 @@
           AppState.halt_reason = s.halt_reason || "";
           AppState.status = s.status || (s.is_halted ? "halted" : "running");
           AppState.mode = s.mode === 'uploaded' ? 'uploaded' : 'paper';
+          AppState.execution_mode = s.execution_mode === 'delta_demo' ? 'delta_demo' : 'paper';
+          AppState.account_connected = s.account_connected;
           if (s.equity) AppState.equity = s.equity;
           if (s.peak_equity) AppState.peak_equity = s.peak_equity;
           if (s.daily_pnl !== undefined) AppState.daily_pnl = s.daily_pnl;
@@ -2884,36 +2857,30 @@
           if (Array.isArray(trades)) {
             AppState.recent_trades = trades.map(t => {
               const d = t.ts ? new Date(t.ts * 1000) : new Date();
+              const eventType = String(t.event_type || 'ENTRY').toUpperCase();
+              const hasFillPrice = t.fill_price != null;
+              const fillPrice = Number(t.fill_price ?? t.requested_price ?? t.entry_price ?? 0);
+              const tradeTs = Number(t.ts || Math.floor(d.getTime() / 1000));
               return {
                 id: t.client_order_id || `TRD-${t.id || 1000}`,
-                time: formatIstTime(t.ts || Date.now() / 1000),
-                ts: t.ts || Math.floor(d.getTime() / 1000),
+                time: formatIstTime(tradeTs),
+                ts: tradeTs,
+                event_type: eventType,
                 side: (t.side || 'BUY').toUpperCase(),
-                price: Number(t.price || 0),
+                price: fillPrice,
+                price_kind: hasFillPrice ? 'FILL' : 'REFERENCE',
+                entry_price: eventType === 'EXIT' ? 0 : fillPrice,
+                exit_price: eventType === 'EXIT' ? fillPrice : 0,
+                entry_ts: eventType === 'EXIT' ? 0 : tradeTs,
+                exit_ts: eventType === 'EXIT' ? tradeTs : 0,
                 size: Number(t.size || 0),
-                fee: Number(t.fee || 0.83),
-                reason: t.reason || "Autonomous trend breakout execution",
-                route: "PAPER"
+                fee: Number(t.fee || 0),
+                pnl: t.pnl == null ? undefined : Number(t.pnl),
+                reason: (t.reason || "Strategy signal") + (t.status ? ` · ${t.status}` : ''),
+                route: t.route || (AppState.execution_mode === 'delta_demo' ? 'DELTA DEMO' : 'PAPER')
               };
             });
           }
-        }
-
-        if (paperRes.status === 'fulfilled' && paperRes.value.ok) {
-          const paper = await paperRes.value.json();
-          const closed = (paper.closed_trades || []).map(t => ({
-            id: t.id, ts: Number(t.entry_ts), entry_ts: Number(t.entry_ts), exit_ts: Number(t.exit_ts),
-            side: t.side, price: Number(t.entry_price), entry_price: Number(t.entry_price),
-            exit_price: Number(t.exit_price), size: Number(t.size), fee: Number(t.fees || 0),
-            pnl: Number(t.pnl || 0), reason: t.exit_reason || 'Paper trade closed', route: 'PAPER'
-          }));
-          const open = (paper.open_positions || []).map(p => ({
-            id: 'paper-open-position', ts: Number(p.entry_ts || 0), entry_ts: Number(p.entry_ts || 0),
-            side: String(p.side || 'buy').toUpperCase(), price: Number(p.entry_price),
-            entry_price: Number(p.entry_price), size: Number(p.size), fee: 0,
-            reason: 'Paper position open', route: 'PAPER'
-          }));
-          AppState.recent_trades = [...open, ...closed];
         }
 
         if (signalsRes.status === 'fulfilled' && signalsRes.value.ok) {
@@ -3002,6 +2969,7 @@
             const msg = JSON.parse(event.data);
             if (msg.type === 'market_price' && msg.data) {
               const p = msg.data;
+              if (p.symbol && p.symbol.toUpperCase() !== AppState.symbol.toUpperCase()) return;
               if (p.mark_price > 0) AppState.current_price = p.mark_price;
               if (p.spot_price > 0) AppState.spot_price = p.spot_price;
               AppState.price_received_timestamp = p.received_timestamp || Date.now() / 1000;
@@ -3012,6 +2980,14 @@
             }
             if (msg.type === 'snapshot' && msg.data) {
               const d = msg.data;
+              if (d.symbol && d.symbol.toUpperCase() !== AppState.symbol.toUpperCase()) {
+                AppState.symbol = d.symbol.toUpperCase();
+                AppState.candles = []; AppState.all_candles = []; AppState.history_offset = 0;
+                AppState.history_data_loaded = false; AppState.history_data_timeframe = null;
+                chartLayoutKey = '';
+                fetchCandlesFromStore();
+              }
+              if (d.symbol && !d.symbol.toUpperCase().endsWith('USD')) AppState.symbol = d.symbol.toUpperCase();
               if (d.price && d.price > 0) AppState.current_price = d.price;
               if (d.mark_price > 0) AppState.current_price = d.mark_price;
               if (d.spot_price > 0) AppState.spot_price = d.spot_price;
@@ -3076,13 +3052,10 @@
                 AppState.current_price = Number(msg.latest_price);
               }
               if (AppState.mode === 'uploaded' && (!msg.timeframe || msg.timeframe === AppState.timeframe)) {
-                AppState.backtest_data_loaded = false;
-                AppState.backtest_data_timeframe = null;
-                AppState.backtest_data_source = 'uploaded';
+                AppState.history_data_loaded = false;
+                AppState.history_data_timeframe = null;
+                AppState.history_data_source = 'history';
                 AppState.all_candles = [];
-                AppState.backtest_trades = [];
-                AppState.backtest_results = null;
-                document.getElementById('backtestBanner')?.classList.add('hidden');
               }
               await fetchCandlesFromStore();
               refreshDatabaseSummary();

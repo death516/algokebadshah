@@ -30,18 +30,18 @@ def _noisy_trend(drift: float, n: int = 1200, seed: int = 0) -> np.ndarray:
 
 def test_uptrend_produces_long_signal_with_valid_geometry():
     df15 = _frame(_noisy_trend(+0.15))
-    sig = compute_signals(df15, _htf(df15))
+    sig = compute_signals(df15, _htf(df15), TrendParams(entry_mode="ema_cross"))
     buys = sig[sig["side"] == "buy"]
     assert len(buys) >= 1, "expected at least one long signal in an uptrend"
     for _, b in buys.iterrows():
         assert b["stop"] < b["entry"] < b["tp"]
         rr = (b["tp"] - b["entry"]) / (b["entry"] - b["stop"])
-        assert np.isclose(rr, TrendParams().rr, atol=1e-6)
+        assert np.isclose(rr, TrendParams(entry_mode="ema_cross").rr, atol=1e-6)
 
 
 def test_downtrend_produces_short_signal():
     df15 = _frame(_noisy_trend(-0.15))
-    sig = compute_signals(df15, _htf(df15))
+    sig = compute_signals(df15, _htf(df15), TrendParams(entry_mode="ema_cross"))
     sells = sig[sig["side"] == "sell"]
     assert len(sells) >= 1
     for _, s in sells.iterrows():
@@ -58,7 +58,7 @@ def test_no_htf_lookahead():
     # htf_close attached to a 15m bar must come from an already-closed 1h candle.
     up = np.linspace(60, 160, 400)
     df15 = _frame(up)
-    sig = compute_signals(df15, _htf(df15))
+    sig = compute_signals(df15, _htf(df15), TrendParams(entry_mode="ema_cross"))
     # First usable htf value only appears after the first full hour has closed.
     first_valid = sig["htf_close"].first_valid_index()
     assert first_valid >= df15.index[0] + pd.Timedelta(hours=1)

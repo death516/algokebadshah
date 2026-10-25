@@ -6,6 +6,7 @@ from app.strategy.trend import (
     TrendParams,
     compute_signals,
 )
+from app.strategy.wma_multitf import WmaMultiTfParams, WmaMultiTfStrategy
 
 __all__ = [
     "BaseStrategy",
@@ -13,4 +14,6 @@ __all__ = [
     "TrendFollowingStrategy",
     "TrendParams",
     "compute_signals",
+    "WmaMultiTfStrategy",
+    "WmaMultiTfParams",
 ]

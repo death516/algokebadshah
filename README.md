@@ -6,6 +6,8 @@ A production-grade, fully automated algorithmic trading system built for the Del
 
 ## 1. System Architecture
 
+The dashboard market selector supports **BTCUSD, ETHUSD, and SOLUSD**. The chart and strategy follow the selected market; changing markets is blocked while a position or open order exists. Upload matching symbol/timeframe candle files before running a backtest on ETH or SOL. The USD/INR control converts displayed monetary values only; strategy calculations and exchange orders remain denominated in USD.
+
 The core design principle is strict separation of concerns: **the strategy never communicates directly with the exchange.**
 
 ```
@@ -27,18 +29,19 @@ The core design principle is strict separation of concerns: **the strategy never
 
 ---
 
-## 2. Trading Strategy (BTCUSD Perpetual)
+## 2. Main Trading Strategy: Asset-Specific Regime Strategy
 
-- **Instrument:** BTCUSD Perpetual (`15m` execution timeframe, `1h` higher timeframe trend filter)
-- **Long Entry:**
-  - `EMA(20)` crosses above `EMA(50)` on 15m.
-  - `ADX(14) > 20` (volatility & trend filter).
-  - Current 1h candle close > 1h `EMA(50)`.
-- **Short Entry:** Mirror of long entry.
-- **Stop Loss:** `1.5 x ATR(14)` from entry price.
-- **Take Profit:** `2.0R` (Risk-to-Reward ratio of 1:2).
-- **Position Sizing:** Risk `1%` of equity per trade:
-  $$\text{Size} = \frac{\text{Equity} \times 1\%}{|\text{Entry} - \text{Stop Loss}|}$$
+Live paper trading and the default `python -m backtest.run` use the regime
+strategy in `app/strategy/trend.py`, with **15-minute execution candles** and
+**1-hour trend context**. The dashboard selects a matching preset when BTCUSD,
+ETHUSD, or SOLUSD is selected. BTC keeps its previous parameters; ETH and SOL
+use the parameter-search presets documented in `backtest/README.md`.
+
+In stronger trends, the strategy enters on a fast/slow EMA cross confirmed by
+ADX and exits with an ATR stop/trail. In ranging markets, it takes Bollinger
+Band fades confirmed by RSI, with a 1R mean-reversion target. Existing project
+risk limits, stale-data guard, and kill switch remain active. Results are not
+guaranteed; see `backtest/README.md` for assumptions and preset results.
 
 ---
 
@@ -118,7 +121,8 @@ pip install -r requirements.txt
 ```bash
 cp .env.example .env
 # Copy .env and optionally configure the paper starting balance and fee.
-# The dashboard paper executor does not use exchange API credentials.
+# For Delta demo trading, configure DELTA_BASE_URL, DELTA_API_KEY,
+# DELTA_API_SECRET, DEMO_MODE=true, and DEMO_MAX_NOTIONAL_USD=100.
 ```
 
 ### 3. Run Phase 0 Verification
@@ -137,17 +141,17 @@ make run
 # Dashboard: http://localhost:8000/dashboard
 ```
 
-### Paper trading and backtest analysis
+### Order execution
 
-The dashboard starts in **Paper Trading** mode. It uses the live BTC candle feed
-to simulate orders in a $10,000 account; it never sends orders to Delta Exchange.
-Paper fills include a configurable fee (`PAPER_FEE_RATE`, default `0.0003` per
-side) and exits are simulated from candle stop/target touches. The in-memory paper
-account and its trade history reset when the server restarts. Set
-`PAPER_START_EQUITY` to change the starting balance.
-
-Choose **Backtest Analysis** and click **Run Backtest** to review the bundled
-full-year BTC data, trade markers, full-period performance, and a chronological
-70/30 in-sample / held-out report. The held-out period is more useful for
-estimating how the strategy may generalize, but historical results do not
-guarantee future performance.
+The dashboard starts in **paper mode**. Approved signals generate simulated
+fills in the local account and are recorded in the dashboard's **Signals &
+System Logs** and recent trades panel; these are not exchange orders. To route
+signals to the **Delta demo/testnet** account instead, set
+`DELTA_BASE_URL=https://cdn-ind.testnet.deltaex.org`, `DELTA_API_KEY`,
+`DELTA_API_SECRET`, and `DEMO_MODE=true` in `.env`, then restart the server.
+Click **Delta Demo: Off** and confirm to switch to automatic demo orders. When
+Delta Demo is turned off, the system returns to paper mode. Each demo order is capped at
+`DEMO_MAX_NOTIONAL_USD` (default $100), sized to whole exchange contracts, and
+rejected if the account cannot be verified or already has a position/order for
+the configured symbol. Disable execution only after closing demo positions and
+canceling outstanding orders. Production URLs are rejected by configuration.

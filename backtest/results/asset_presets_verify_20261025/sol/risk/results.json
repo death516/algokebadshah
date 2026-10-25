@@ -1,0 +1,28 @@
+{
+  "trades": 71,
+  "wins": 25,
+  "losses": 46,
+  "win_rate_pct": 35.21,
+  "total_return_pct": 8.66,
+  "cagr_pct": 8.66,
+  "profit_factor": 1.118,
+  "avg_r_multiple": 0.139,
+  "expectancy_usd": 12.2,
+  "sharpe": 0.47,
+  "sortino": 0.15,
+  "calmar": 0.39,
+  "max_drawdown_pct": -22.11,
+  "total_fees_usd": 717.66,
+  "final_equity": 10866.36,
+  "halted_by_kill_switch": false,
+  "kill_switch_hits": 1,
+  "exit_breakdown": {
+    "stop": 69,
+    "tp": 1,
+    "kill_switch": 1
+  },
+  "span_days": 365.0,
+  "alpha_annual_pct": 12.2,
+  "beta": 0.026,
+  "treynor_annual": 4.367
+}

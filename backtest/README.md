@@ -1,16 +1,18 @@
-# Backtest — Strategy report (Role B)
+# Backtest — Asset-Specific Regime Strategy
 
-BTC/USD perpetual. The dashboard can backtest independently selected execution
-and trend timeframes from uploaded data; the command-line/research defaults remain
-15m candles with a 1h trend filter. Dashboard and default CLI results use the
-entire selected dataset; they do not split it into training and held-out periods.
-The active bundled dataset
-is in `backtest/data/btc_1y/`: 35,046 15m candles, 8,761 1h candles, 8,751 hourly
-funding observations, and 35,046 15m mark-price candles (2025-10-19 → 2026-10-19).
-`python -m backtest.run` uses this dataset directly. The dashboard uses uploaded
-timeframe pairs when available, and otherwise falls back to this bundled dataset
-for the default 15m/1h pair. Uploaded dashboard datasets are stored under
-`backtest/data/uploads/`; upload both selected timeframes with matching coverage.
+The main CLI strategy is the asset-specific regime strategy, with 15m execution
+and 1h context. It uses the full selected dataset; no train/held-out split is
+applied. `python -m backtest.run` reads `candles_15m.json` and `candles_1h.json`
+from the selected data folder and selects the BTC, ETH, or SOL parameter preset.
+Use `--wma` to run the WMA multi-timeframe research baseline, or `--trend` for
+the EMA-cross-only baseline. `--regime` remains as an explicit alias for the
+default strategy.
+
+The current downloaded dataset in `backtest/data/delta_btc_20261025/` has 105,120
+5m bars, 35,040 15m bars, and 8,760 1h bars spanning 2025-10-25 through 2026-10-25. It does not
+include funding or mark-price files, so backtests from this folder use zero
+funding and traded 15m candles as the mark-price approximation. Add matching
+`funding_1h.json` and `mark_15m.json` files for those effects to be included.
 
 ### Downloading more timeframes from Delta
 
@@ -18,23 +20,51 @@ The downloader requests public BTCUSD history in pages of at most 2,000 bars
 and writes app-compatible JSON files without replacing dashboard uploads:
 
 ```powershell
-.\.venv\Scripts\python.exe -m backtest.download_delta_candles `
-  --start 2025-10-22 --end 2026-10-22
+.\.venv\Scripts\python.exe -m backtest.download_delta_candles
 ```
 
 By default it downloads 1m, 3m, 5m, 15m, and 1h candles for the previous year
 from Delta's India production public API into `backtest/data/delta_btc/`. Use
 `--timeframes 1m 15m 1h` to select resolutions, or `--output-dir` to choose a
-different folder. To use a downloaded file for a dashboard backtest, upload it
-in the dashboard's candle-data panel and select the matching timeframe.
+different folder. Transient connection and server errors are retried, and
+successful pages are checkpointed. If the process still exits, rerun the same
+command with the same output directory to continue. To use a downloaded file for
+a dashboard backtest, upload it in the dashboard's candle-data panel and select
+the matching timeframe.
+
+To download and backtest other USD perpetual symbols, keep each symbol in its
+own folder and results directory:
+
+```powershell
+.\.venv\Scripts\python.exe -m backtest.download_delta_candles --symbol ETHUSD --output-dir backtest/data/delta_eth_20261025
+.\.venv\Scripts\python.exe -m backtest.download_delta_candles --symbol SOLUSD --output-dir backtest/data/delta_sol_20261025
+.\.venv\Scripts\python.exe -m backtest.run --symbol ETHUSD --data-dir backtest/data/delta_eth_20261025
+.\.venv\Scripts\python.exe -m backtest.run --symbol SOLUSD --data-dir backtest/data/delta_sol_20261025
+```
+
+To reproduce the competition research inputs from Binance USDT-M perpetuals,
+the imported downloader can fetch 15m/1h candles plus funding history:
+
+```powershell
+.\.venv\Scripts\python.exe -m backtest.download_eth_data --symbol ETHUSDT
+.\.venv\Scripts\python.exe -m backtest.run --symbol ETHUSD --data-dir backtest/data/eth_1y
+```
+
+Use `--symbol SOLUSDT` for SOL. This downloader is for historical research data;
+the live market feed and demo orders remain on Delta Exchange.
+
+The downloader can include 1m, 3m, 5m, 15m, and 1h files; the main strategy
+evaluates 15m execution plus 1h context. Default reports are saved under
+`backtest/results/` for BTC and symbol-specific subfolders for ETH/SOL.
 
 Signals and stop/target execution use the traded candle OHLC. Open-position
 mark-to-market and funding settlements use the supplied mark-price series.
 Positive funding is charged to longs and credited to shorts at the hourly
 settlement timestamps.
 
-Paper trading and dashboard backtests share the `PRODUCTION_PARAMS` configuration
-in `app/strategy/trend.py`, so both use the same regime-switching signal rules.
+Paper trading and the main command-line backtest both use `TrendStrategy` in
+`app/strategy/trend.py` and select the asset preset for the active market. The
+WMA strategy remains available with `python -m backtest.run --wma`.
 
 All runs include costs: **0.03% fee per side + 2 bps slippage per fill = 10 bps
 round-trip** (limit-order-style execution; see Cost sensitivity for the full
@@ -42,7 +72,7 @@ spectrum). 1% base equity risk per trade, max 5x leverage, one position at a tim
 Entries fill at the **next bar's open** after a closed-bar signal (no lookahead);
 if a bar touches both stop and target, the **stop is assumed first** (worst case).
 
-## Strategy: regime switch (trend-follow + mean-reversion)
+## Active strategy: asset-specific regime switch
 
 The single-strategy trend-follower is not robust on 15m BTC (see "How we got
 here"), so the production strategy switches behaviour by regime, measured with
@@ -50,9 +80,17 @@ ADX(14):
 
 | Regime | Condition | Logic | Exit |
 |---|---|---|---|
-| **Trending** | ADX ≥ 22 | EMA(20/50) cross in the trend direction | ATR trailing stop (×4), stop ×2 ATR — let winners run |
-| **Ranging** | ADX < 18 | Fade Bollinger(20, 2σ) extremes with RSI(14) < 25 / > 75 | fixed target at 1R, stop ×1.5 ATR |
-| Transition | 18 ≤ ADX < 22 | no new trades | — |
+| Asset | Trend / range ADX | Mean-reversion RSI | Trend exit | Range exit |
+|---|---:|---:|---|---|
+| **BTC** | 22 / 18 | 25 / 75 | 4× ATR trail, 2× ATR stop | 1R target, 1.5× ATR stop |
+| **ETH** | 28 / 20 | 30 / 70 | 4× ATR trail, 2× ATR stop | 1R target, 1.5× ATR stop |
+| **SOL** | 28 / 20 | 25 / 75 | 4× ATR trail, 2× ATR stop | 1R target, 1.5× ATR stop |
+
+In a trend, an EMA(20/50) cross in the trend direction is confirmed by the
+asset's trend ADX threshold. In ranging conditions (below the range threshold),
+the strategy fades Bollinger(20, 2σ) extremes confirmed by the asset's RSI
+thresholds. The gap between the two ADX thresholds is a no-entry transition
+zone. Each asset preset is selected by symbol in both the live engine and CLI.
 
 One tool for each regime: the trend leg harvests the fat tails of real trends;
 the mean-reversion leg earns in the chop where the trend leg whipsaws. Every
@@ -60,23 +98,19 @@ signal carries its own exit plan, so the two legs coexist in one engine.
 
 ## Headline results
 
-**The result tables in this report are archived results from the previous
-one-minute parquet dataset. They do not describe the bundled `btc_1y` JSON data.**
-Rerun `python -m backtest.run` to generate current metrics before relying on a
-performance figure; the separate sweep/stress scripts also need to be rerun to
-refresh their archived tables for this dataset.
+The table below is a fresh run on the bundled `delta_*_20261025` data folders,
+starting with $10,000. It uses the current project's risk-managed CLI profile;
+the historical report quoted earlier used different result files/settings and
+does not reproduce on these bundled candles.
 
-Chosen params: `entry_mode=regime, EMA 20/50, adx_trend=22, adx_range=18,
-RSI 25/75, trend_trail=4×ATR, trend_stop=2×ATR, mr_tp=1R, mr_stop=1.5×ATR`.
-Reproduce: `python -m backtest.run`.
+| Asset | Return | Final equity | Trades | Win rate | Profit factor | Max drawdown |
+|---|---:|---:|---:|---:|---:|---:|
+| BTC | +80.16% | $18,016.41 | 207 | 30.43% | 1.394 | −24.72% |
+| ETH | −4.81% | $9,519.04 | 185 | 42.70% | 0.971 | −33.96% |
+| SOL | +32.38% | $13,238.39 | 92 | 40.22% | 1.277 | −30.16% |
 
-| Run | Return | CAGR | Profit factor | Sharpe | Max DD | Win % | Trades |
-|---|---|---|---|---|---|---|---|
-| **Gross edge** (risk halts off, fixed sizing) | **+106.2%** | 154% | **1.69** | **2.45** | −21.0% | 32.0% | 172 |
-| **Risk-managed** (live overlay, anti-martingale) | +91.2% | 131% | 1.52 | 2.03 | −21.8% | 31.5% | 162 |
-
-Win rate is low by design — trailing trend-following takes many small losses and
-a few large wins; the out-of-sample trend period averaged ~+1.9R per trade.
+Rerun with `python -m backtest.run --symbol BTCUSD` (or ETHUSD/SOLUSD) to
+refresh the active asset's report. Results are in-sample, not a forecast.
 
 ### Risk-adjusted & benchmark metrics (production, risk-managed)
 

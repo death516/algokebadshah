@@ -388,7 +388,7 @@ def test_api_v1_endpoints_and_flatten():
     risk_manager.resume()
 
 
-def test_mode_and_backtest_endpoints():
+def test_mode_and_history_endpoints():
     client = TestClient(app)
 
     # 1. Test GET /api/v1/mode
@@ -406,7 +406,7 @@ def test_mode_and_backtest_endpoints():
     assert res_back.json()["mode"] == "live"
 
 
-def test_candles_storage_upload_and_backtest(tmp_path, monkeypatch):
+def test_candles_storage_upload_and_history(tmp_path, monkeypatch):
     from app.api import routes as api_routes
     monkeypatch.setattr(api_routes, "_UPLOAD_DATA_DIR", tmp_path)
     client = TestClient(app)
@@ -436,11 +436,9 @@ def test_candles_storage_upload_and_backtest(tmp_path, monkeypatch):
     candles = res_candles.json()
     assert len(candles) >= 3
 
-    # A partial upload must not silently backtest the unrelated bundled year.
-    res_bt = client.post("/api/v1/backtest/run", json={
-        "execution_timeframe": "15m", "trend_timeframe": "1h", "symbol": "BTCUSD"
-    })
-    assert res_bt.status_code == 400
-    assert "Upload 1h candles" in res_bt.json()["detail"]
+    # Uploaded candle history remains available for chart inspection.
+    res_history = client.get("/api/v1/history/candles?resolution=15m&symbol=BTCUSD&limit=10")
+    assert res_history.status_code == 200
+    assert len(res_history.json()) >= 3
 
 

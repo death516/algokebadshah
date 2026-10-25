@@ -7,17 +7,18 @@ Implements all 8 safety checks in order:
   4. Daily Loss Limit         - halts for the day if losses exceed DAILY_LOSS_LIMIT_PCT
   5. Drawdown Kill Switch     - flattens and halts if drawdown exceeds MAX_DRAWDOWN_PCT
   6. Order Sanity Check       - validates SL/TP are on the correct sides of entry
-  7. Position Sizing          - sizes position risking exactly RISK_PER_TRADE_PCT of equity
+  7. Position Sizing          - scales fixed-fraction risk down as ATR volatility rises
   8. Leverage & Notional Caps - clamps size within MAX_LEVERAGE and MAX_NOTIONAL_USD
 """
 import logging
 import time
+from datetime import datetime, timezone
 from typing import Optional, Callable
 
 from app.models import Signal, AccountState, RiskDecision
 from app.interfaces import RiskManager
 from app.config import settings
-from app.risk.sizing import calculate_position_size
+from app.risk.sizing import calculate_position_size, volatility_adjusted_risk_pct
 
 logger = logging.getLogger("app.risk.manager")
 
@@ -50,9 +51,14 @@ class DeltaRiskManager(RiskManager):
         self.anti_mult = anti_mult
         self.anti_max_steps = anti_max_steps
         self._win_streak = 0
+        self._kelly_r_multiples: list[float] = []
+        self._daily_halt_day = None
 
-    def record_trade_result(self, pnl: float) -> None:
-        """Update anti-martingale streak after a paper position closes."""
+    def record_trade_result(self, pnl: float, initial_risk: Optional[float] = None) -> None:
+        """Update rolling position-sizing statistics after a paper position closes."""
+        if initial_risk is not None and initial_risk > 0:
+            self._kelly_r_multiples.append(float(pnl) / float(initial_risk))
+            del self._kelly_r_multiples[:-50]
         if pnl > 0:
             self._win_streak += 1
         else:
@@ -60,18 +66,34 @@ class DeltaRiskManager(RiskManager):
 
     def enforce_account_limits(self, account: AccountState) -> None:
         """Enforce account-wide loss limits continuously, including between signals."""
-        if self._halted:
+        today = datetime.fromtimestamp(self._clock(), timezone.utc).date()
+        if self._daily_halt_day is not None and today > self._daily_halt_day:
+            logger.info("[risk] Daily loss pause expired at UTC day boundary.")
+            self._halted = False
+            self._halt_reason = ""
+            self._daily_halt_day = None
+        elif self._halted and self._daily_halt_day is None:
             return
-        daily_limit = -(settings.DAILY_LOSS_LIMIT_PCT / 100.0) * account.equity
-        if account.daily_pnl < daily_limit:
-            self.halt(f"Daily loss limit breached: {account.daily_pnl:.2f} < {daily_limit:.2f}")
-            return
+
+        # Drawdown is a hard kill switch and must be checked even if a daily
+        # loss pause is already preventing new entries.
         if account.peak_equity > 0:
             drawdown_pct = (account.peak_equity - account.equity) / account.peak_equity * 100.0
             if drawdown_pct >= settings.MAX_DRAWDOWN_PCT:
                 self.halt(f"Max drawdown kill switch triggered: {drawdown_pct:.2f}% >= {settings.MAX_DRAWDOWN_PCT}%")
+                self._daily_halt_day = None
                 if self._flatten_callback is not None:
                     self._flatten_callback()
+                return
+
+        # AccountState.daily_pnl is measured from the executor's day-start
+        # equity. Recover that baseline so the loss threshold does not shrink
+        # or expand with intraday mark-to-market equity changes.
+        day_start_equity = max(0.0, account.equity - account.daily_pnl)
+        daily_limit = -(settings.DAILY_LOSS_LIMIT_PCT / 100.0) * day_start_equity
+        if account.daily_pnl < daily_limit:
+            self._daily_halt_day = today
+            self.halt(f"Daily loss limit breached: {account.daily_pnl:.2f} < {daily_limit:.2f}")
 
     @property
     def halt_reason(self) -> str:
@@ -140,9 +162,35 @@ class DeltaRiskManager(RiskManager):
         #   (calculate_position_size already applies both caps)
         # -----------------------------------------------------------
         risk_pct = settings.RISK_PER_TRADE_PCT
-        if self.sizing_mode == "anti_martingale":
+        if self.sizing_mode == "volatility_fixed":
+            risk_pct = volatility_adjusted_risk_pct(
+                base_risk_pct=settings.RISK_PER_TRADE_PCT,
+                atr_value=signal.atr,
+                entry_price=signal.entry_price,
+                target_atr_pct=settings.VOL_TARGET_ATR_PCT,
+                min_risk_pct=settings.MIN_RISK_PER_TRADE_PCT,
+            )
+        elif self.sizing_mode == "anti_martingale":
             risk_pct *= self.anti_mult ** min(self._win_streak, self.anti_max_steps)
             risk_pct = min(risk_pct, 10.0)
+        elif self.sizing_mode == "kelly":
+            # WMA strategy sizing: warm up at 0.5% until 20 trades; then use
+            # half-Kelly over the last 50 closed trade R multiples, clipped to
+            # the strategy's 0.25%-2.5% risk band.
+            outcomes = self._kelly_r_multiples[-50:]
+            risk_pct = 0.5
+            if len(outcomes) >= 20:
+                wins = [value for value in outcomes if value > 0]
+                losses = [-value for value in outcomes if value < 0]
+                if not wins:
+                    risk_pct = 0.25
+                elif not losses:
+                    risk_pct = 2.5
+                else:
+                    win_rate = len(wins) / len(outcomes)
+                    win_loss_ratio = (sum(wins) / len(wins)) / (sum(losses) / len(losses))
+                    half_kelly = 0.5 * (win_rate - (1.0 - win_rate) / win_loss_ratio)
+                    risk_pct = min(2.5, max(0.25, half_kelly * 100.0))
         size = calculate_position_size(
             equity=account.equity,
             entry_price=signal.entry_price,
@@ -161,16 +209,22 @@ class DeltaRiskManager(RiskManager):
             logger.warning("[risk] Rejected — %s", reason)
             return RiskDecision(approved=False, size=0.0, reason=reason)
 
+        approval_reason = (
+            f"Approved with volatility-adjusted equity risk of {risk_pct:.3f}%"
+            if self.sizing_mode == "volatility_fixed"
+            else "Approved by risk manager"
+        )
         logger.info(
-            "[risk] APPROVED — %s %s size=%.4f entry=%.2f sl=%.2f tp=%.2f",
+            "[risk] APPROVED — %s %s size=%.4f risk=%.3f%% entry=%.2f sl=%.2f tp=%.2f",
             signal.side.upper(),
             signal.symbol,
             size,
+            risk_pct,
             signal.entry_price,
             signal.stop_loss,
             signal.take_profit,
         )
-        return RiskDecision(approved=True, size=size, reason="Approved by risk manager")
+        return RiskDecision(approved=True, size=size, reason=approval_reason)
 
     def is_halted(self) -> bool:
         return self._halted
@@ -184,6 +238,7 @@ class DeltaRiskManager(RiskManager):
         logger.info("[risk] Trading RESUMED — previous halt reason was: %s", self._halt_reason)
         self._halted = False
         self._halt_reason = ""
+        self._daily_halt_day = None
 
     # ------------------------------------------------------------------
     # Private helpers

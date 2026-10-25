@@ -3,21 +3,25 @@ from __future__ import annotations
 
 import time
 import uuid
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
 from app.models import AccountState, OrderRequest, OrderResult, Position
+
+logger = logging.getLogger("app.execution.paper")
 
 
 class PaperExecutor:
     """Paper account with conservative candle-based stop/target fills and trading fees."""
 
     def __init__(self, initial_equity: float = 10_000.0, fee_rate: float = 0.0003,
-                 slippage_bps: float = 2.0, on_trade_closed=None):
+                 slippage_bps: float = 2.0, on_trade_closed=None, on_trade_event=None):
         self.initial_equity = float(initial_equity)
         self.fee_rate = float(fee_rate)
         self.slippage_rate = float(slippage_bps) / 10_000.0
         self.on_trade_closed = on_trade_closed
+        self.on_trade_event = on_trade_event
         self.realized_pnl = 0.0
         self.peak_equity = self.initial_equity
         self.daily_pnl = 0.0
@@ -138,12 +142,14 @@ class PaperExecutor:
             "atr": max(0.0, float(order.atr)),
             "entry_ts": self.last_data_ts,
             "entry_fee": fee,
+            "initial_risk": float(order.size) * stop_distance,
             "client_order_id": order.client_order_id,
         }
         self.orders.append(order)
         self._refresh_position()
         order_id = f"paper-{uuid.uuid4().hex[:10]}"
-        return OrderResult(ok=True, order_id=order_id, status="PAPER_FILLED")
+        return OrderResult(ok=True, order_id=order_id, status="PAPER_FILLED",
+                           fill_price=entry, filled_at=self.last_data_ts, fee=fee)
 
     def _close_position(self, exit_price: float, exit_ts: int, reason: str) -> None:
         pos = self._position
@@ -163,9 +169,35 @@ class PaperExecutor:
             "pnl": net, "fees": pos["entry_fee"] + exit_fee, "exit_reason": reason,
             "route": "PAPER",
         })
+        logger.info(
+            "[trade] PAPER EXIT %s %s @ %.2f | size=%.8f | fee=%.2f | net PnL=%.2f | reason=%s | entry_order=%s",
+            "SELL" if pos["side"] == "buy" else "BUY", pos["symbol"], exit_price,
+            pos["size"], exit_fee, net, reason, pos["client_order_id"],
+        )
+        if self.on_trade_event:
+            event = {
+                "symbol": pos["symbol"],
+                "side": "sell" if pos["side"] == "buy" else "buy",
+                "size": pos["size"],
+                "fill_price": exit_price,
+                "fee": exit_fee,
+                "pnl": net,
+                "ts": int(exit_ts),
+                "signal_ts": pos["signal_ts"],
+                "client_order_id": f"{pos['client_order_id']}-exit",
+                "order_id": f"paper-exit-{uuid.uuid4().hex[:10]}",
+                "reason": f"Exit: {reason}",
+            }
+            try:
+                self.on_trade_event(event)
+            except Exception:
+                logger.exception("[paper] Could not persist paper exit event")
         self._position = None
         if self.on_trade_closed:
             try:
+                self.on_trade_closed(net, float(pos.get("initial_risk", 0.0)))
+            except TypeError:
+                # Keep compatibility with existing single-argument callbacks.
                 self.on_trade_closed(net)
             except Exception:
                 pass

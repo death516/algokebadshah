@@ -40,12 +40,29 @@ def risk_fraction(cfg, win_streak: int, loss_streak: int, recent_pnls) -> float:
     floor = cfg.risk_floor_pct / 100.0
 
     if "kelly" in mode:
-        fk = kelly_fraction(recent_pnls, cfg.kelly_min_trades)
-        if fk is None:
-            base_frac = base
+        if cfg.kelly_use_r_multiples:
+            outcomes = list(recent_pnls)[-cfg.kelly_lookback:]
+            wins = [p for p in outcomes if p > 0]
+            losses = [-p for p in outcomes if p < 0]
+            if len(outcomes) < cfg.kelly_min_trades:
+                base_frac = base
+            elif not wins:
+                base_frac = floor
+            elif not losses:
+                base_frac = cfg.kelly_cap_pct / 100.0
+            else:
+                win_rate = len(wins) / len(outcomes)
+                reward_risk = (sum(wins) / len(wins)) / (sum(losses) / len(losses))
+                edge = win_rate - (1.0 - win_rate) / reward_risk
+                base_frac = min(cfg.kelly_cap_pct / 100.0,
+                                max(floor, cfg.kelly_fraction * edge))
         else:
-            base_frac = min(cfg.kelly_fraction * fk, cfg.kelly_cap_pct / 100.0)
-        base_frac = max(base_frac, floor)
+            fk = kelly_fraction(recent_pnls, cfg.kelly_min_trades)
+            if fk is None:
+                base_frac = base
+            else:
+                base_frac = min(cfg.kelly_fraction * fk, cfg.kelly_cap_pct / 100.0)
+            base_frac = max(base_frac, floor)
     else:
         base_frac = base
 

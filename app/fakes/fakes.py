@@ -87,6 +87,7 @@ class FakeStore:
         self.signals: List[Dict[str, Any]] = []
         self.trades: List[Dict[str, Any]] = []
         self.equity_curve: List[Dict[str, Any]] = []
+        self.signal_execution_claims: set[tuple[str, str, int, str]] = set()
 
     def save_signal(self, signal: Signal, decision: RiskDecision) -> None:
         self.signals.append({
@@ -102,6 +103,18 @@ class FakeStore:
             "reason": reason,
             "recorded_at": int(time.time())
         })
+
+    def claim_signal_execution(self, symbol: str, timeframe: str, signal_ts: int,
+                               side: str, reason: str, signal_close_ts: int,
+                               retry_until_ts: int) -> bool:
+        key = (symbol.upper(), timeframe, int(signal_ts), side.lower())
+        if key in self.signal_execution_claims:
+            return False
+        self.signal_execution_claims.add(key)
+        return True
+
+    def save_trade_event(self, event: Dict[str, Any]) -> None:
+        self.trades.append({"event": dict(event), "recorded_at": int(time.time())})
 
     def save_equity(self, ts: int, equity: float) -> None:
         self.equity_curve.append({

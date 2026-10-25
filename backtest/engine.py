@@ -48,6 +48,7 @@ class BTConfig:
     kelly_lookback: int = 40       # rolling window of trades for the edge estimate
     kelly_min_trades: int = 10
     kelly_cap_pct: float = 5.0
+    kelly_use_r_multiples: bool = False
     mart_mult: float = 2.0         # risk multiplier per consecutive loss
     mart_max_steps: int = 3
     anti_mult: float = 1.5         # risk multiplier per consecutive win
@@ -140,7 +141,11 @@ def run_backtest(sig: pd.DataFrame, cfg: BTConfig = BTConfig(),
         else:
             loss_streak += 1
             win_streak = 0
-        recent_pnls.append(total_pnl)
+        if cfg.kelly_use_r_multiples:
+            risk_amount = p.size * p.risk_unit
+            recent_pnls.append(total_pnl / risk_amount if risk_amount > 0 else 0.0)
+        else:
+            recent_pnls.append(total_pnl)
         del recent_pnls[:-cfg.kelly_lookback]  # keep only the rolling window
         trades.append({
             "entry_ts": p.entry_ts, "exit_ts": ts[i], "side": p.side,
